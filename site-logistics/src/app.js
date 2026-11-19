@@ -49,11 +49,43 @@ function csDialog(message, value, secret) { // secret: the text typed is hidden 
 }
 const csAsk = (message, value, secret) => csDialog(message, value == null ? '' : value, secret);
 const csConfirm = (message) => csDialog(message);
+// Export and Print show the sheet first, exactly as it will be saved, with what is on it, and save only on Save (user,
+// 2026-11-19: "clicking export/print should trigger a preview pane so we know what is visible as on screen, but as a
+// safety measure to avoid too many copies"). o: { url (the picture), title, sub, lines, ok (the Save button's words) }.
+// Keys as in csDialog: Enter saves, Esc cancels, and no key reaches the drawing behind it.
+function csPreview(o) {
+  return new Promise((res) => {
+    const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const back = document.createElement('div');
+    back.className = 'cs-dlg-back';
+    back.innerHTML = '<div class="cs-dlg cs-pv" role="dialog" aria-modal="true" aria-label="Preview before saving">' +
+      `<div class="cs-pv-head"><b>${esc(o.title)}</b><span>${esc(o.sub || '')}</span></div>` +
+      `<div class="cs-pv-img"><img alt="The sheet as it will be saved" src="${o.url}"></div>` +
+      (o.lines || []).map((l) => `<div class="cs-pv-line">${esc(l)}</div>`).join('') +
+      `<div class="cs-dlg-btns"><button type="button" class="cs-btn" data-x="cancel">Cancel</button><button type="button" class="cs-btn cs-primary" data-x="ok">${esc(o.ok)}</button></div></div>`;
+    const ok = back.querySelector('[data-x="ok"]'), before = document.activeElement;
+    let closed = false;
+    const done = (yes) => { if (closed) return; closed = true; window.removeEventListener('keydown', onKeys, true); back.remove(); if (before && before.focus) before.focus(); res(yes); };
+    back.addEventListener('click', (e) => { const b = e.target.closest('[data-x]'); if (b) done(b.dataset.x === 'ok'); });
+    function onKeys(e) {
+      e.stopPropagation();
+      const t = e.target;
+      if (e.key === 'Escape') { e.preventDefault(); done(false); return; }
+      if (e.key === 'Enter') { e.preventDefault(); const b = t && t.closest && t.closest('[data-x]'); done(b ? b.dataset.x === 'ok' : true); return; }
+      if (e.key === 'Tab') { const f = [...back.querySelectorAll('button')], i = f.indexOf(t); e.preventDefault(); f[(i < 0 ? 0 : i + (e.shiftKey ? f.length - 1 : 1)) % f.length].focus(); return; }
+      e.preventDefault(); // nothing else: no key reaches the drawing behind
+    }
+    window.addEventListener('keydown', onKeys, true);
+    ['pointerdown', 'pointerup', 'wheel', 'paste'].forEach((t) => back.addEventListener(t, (e) => e.stopPropagation()));
+    document.body.appendChild(back);
+    ok.focus();
+  });
+}
 
-// One drawing for all the tabs. A file opened on any tab becomes the shared drawing: every other tab opens it too the
-// next time it is shown, on the same page, with the same drawing scale and each page turned the same way (those belong
-// to the drawing, not to a plan). Only the markup, sheet scale, symbol size and title block stay each tab's own. The drawing itself is
-// kept in IndexedDB under 'shared'; which page it is on and its scales are in localStorage.
+// The drawing open, kept with this browser: reopened next time on the same page, with the same drawing scale and each
+// page turned the same way (those belong to the drawing; other windows of the tool follow them too). Every layer is
+// markup on that one drawing. The drawing itself is kept in IndexedDB under 'shared'; its page, scales and turns in
+// localStorage (from when each tab was a view of its own, which is why it is called shared).
 const csShared = { rec: null, page: 1, scales: {}, rots: {}, loaded: null }; // rots: per drawing, the quarter turns each page is shown at
 // Snap on or off: one setting for every tab, kept in this browser.
 // The crane notes beside the cursor, on or off: one setting for every tab.
@@ -117,10 +149,26 @@ function createSitePlan(CFG) {
   const ALL_SECTIONS = window.__CS_SYMBOLS || [];
   const SYM = {}; // every symbol in the libraries, so an item always draws
   ALL_SECTIONS.forEach((s) => s.items.forEach((i) => (SYM[i.id] = i)));
-  // This tab's legend: CFG.sections is [{ title, ids }] picking from the libraries; without it, every symbol.
-  const SECTIONS = CFG.sections
-    ? CFG.sections.map((s) => ({ title: s.title, items: s.ids.map((id) => SYM[id]).filter(Boolean) })).filter((s) => s.items.length)
-    : ALL_SECTIONS.filter((s) => !s.only && !(CFG.omit || []).includes(s.title)); // `only`: a section that belongs to one tab's legend; `omit`: sections moved to another tab
+  // The layers (plans.js), each with its legend: `sections` is [{ title, ids }] picking from the libraries; without it,
+  // every symbol (less `omit`). The notes layer lists the Text and Dimension tools instead of library symbols.
+  const sectionsOf = (c) => (c.sections
+    ? c.sections.map((s) => ({ title: s.title, items: s.ids.map((id) => SYM[id]).filter(Boolean) })).filter((s) => s.items.length)
+    : ALL_SECTIONS.filter((s) => !s.only && !(c.omit || []).includes(s.title))); // `only`: a section that belongs to one layer's legend; `omit`: sections moved to another layer
+  const NOTE_ROWS = [ // the notes layer's two "symbols": the Text and Dimension tools, drawn as legend rows
+    { id: '_text', label: 'Text label', vb: '0 0 60 20', inner: '<text x="30" y="15" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="14" fill="#111">Aa</text>' },
+    { id: '_dim', label: 'Dimension', vb: '0 0 60 20', inner: '<path d="M6 14H54M6 9V18M54 9V18" fill="none" stroke="#111" stroke-width="1.5"/><text x="30" y="10" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="8" fill="#111">5.0 m</text>' },
+  ];
+  const LAYERS = (CFG.layers || [{ id: CFG.id, label: CFG.label, sheetTitle: CFG.sheetTitle, sections: CFG.sections, omit: CFG.omit }])
+    .map((c) => ({ id: c.id, label: c.label, notes: !!c.notes, sections: c.notes ? [{ title: c.label.toUpperCase(), items: NOTE_ROWS }] : sectionsOf(c) }));
+  const LAYER = {}; LAYERS.forEach((l) => (LAYER[l.id] = l));
+  const NOTES = (LAYERS.find((l) => l.notes) || LAYERS[LAYERS.length - 1]).id; // where text labels and dimensions go
+  const SECTIONS = LAYERS.filter((l) => !l.notes).flatMap((l) => l.sections); // every symbol any layer lists
+  // the layer a symbol belongs to when an item does not say (markup from before the layers, a plan file from a tab)
+  const homeLayer = (sym) => {
+    if (sym === '_text' || sym === '_dim') return NOTES;
+    const s = ZONE_SYM[sym] || sym, l = LAYERS.find((x) => !x.notes && x.sections.some((sec) => sec.items.some((i) => i.id === s)));
+    return (l || LAYERS[0]).id;
+  };
 
   const KEY = CFG.storeKey;
   const FILL_OPACITY = 0.65; // solid area fills let the drawing show through
@@ -158,7 +206,7 @@ function createSitePlan(CFG) {
     'forklift-staging': { kind: 'area', stroke: '#f7941d', strokeWidth: 2, hatch: 'cross', hatchColor: '#f7941d' },
     // Wayfinding tab
     'wf-route':         { kind: 'line', color: COL.blue, width: 3, arrow: true, dash: '9 6', halo: '#fff' },
-    // the Overlay tab's own dimension line (its text label, '_text', is a point and has no style)
+    // the notes layer's dimension line (its text label, '_text', is a point and has no style)
     _dim:               { kind: 'line', dim: true, color: '#111', width: 1.5, halo: '#fff' },
     'ss-walk-lights':  { kind: 'line', color: '#808080', width: 2, tracks: true }, // Covered Walkway w/ Temp Lights, as the Elevate toolbox draws it
     'ss-covered-walk': { kind: 'area', fill: COL.gray },                 // like the Laydown Area, in grey
@@ -174,7 +222,7 @@ function createSitePlan(CFG) {
     STYLE[id + '-zone'] = { kind: 'area', fill: c, fillOpacity: 0.4, stroke: c, strokeWidth: 2.2, dash: '9 5' };
     ZONE_OF[id] = id + '-zone'; ZONE_NAME[id + '-zone'] = SYM[id].label.replace(/\s+area$/i, '') + ' area'; ZONE_SYM[id + '-zone'] = id; // 'Wash Area' gives 'Wash area'
   });
-  const NOTE_NAMES = { _text: 'Text label', _dim: 'Dimension' }; // the Overlay tab's own items
+  const NOTE_NAMES = { _text: 'Text label', _dim: 'Dimension' }; // the notes layer's items
   const itemName = (sym) => ZONE_NAME[sym] || NOTE_NAMES[sym] || (SYM[sym] || {}).label || sym;
   const POINT_H = { 'ss-gate': 24, 'ss-dep': 26, dumpster: 28, barricade: 12, drum: 14, tubular: 14, cone: 10, sign: 10, workarea: 20, attenuator: 20, flashlight: 24, signal: 32, fab: 24, 'fab-caution': 24, dms: 30, 'truck-w': 22, 'truck-s': 22, 'truck-s1': 22, 'truck-s2': 22, 'truck-b': 22, 'truck-p': 22, 'truck-e': 22, 'truck-c': 22 }; // everything else is 36: design height in 1/100 in (see below)
   // Symbol size, one setting per plan: Small or Large. A symbol prints at a fixed size on the 11 x 17 sheet, whatever
@@ -214,8 +262,13 @@ function createSitePlan(CFG) {
   // ---------- saved state ----------
   // localStorage: one plan per drawing (keyed by file name and size); IndexedDB: the last drawing itself, so it reopens.
   const store = (() => {
-    try { const j = JSON.parse(localStorage.getItem(KEY) || '{}'); return { plans: j.plans || {}, last: j.last || null, by: j.by || '', checked: j.checked || '', fmt: j.fmt || 'png', scope: j.scope || 'all', pkind: j.pkind === 'image' ? 'image' : 'pdf', checksOpen: !!j.checksOpen }; }
-    catch (e) { return { plans: {}, last: null, by: '', checked: '' }; }
+    try {
+      // the first time with layers, the settings kept with the first tab (names for the title block, export choices)
+      const own = localStorage.getItem(KEY), first = CFG.legacy && Object.values(CFG.legacy)[0];
+      const j = JSON.parse(own || (first && localStorage.getItem(first)) || '{}');
+      return { plans: own ? j.plans || {} : {}, last: own ? j.last || null : null, by: j.by || '', checked: j.checked || '', fmt: j.fmt || 'png', scope: j.scope || 'all', pkind: j.pkind === 'image' ? 'image' : 'pdf', checksOpen: !!j.checksOpen, open: (own && j.open) || {} }; // open: which layers' lists are dropped down
+    }
+    catch (e) { return { plans: {}, last: null, by: '', checked: '', open: {} }; }
   })();
   let saveWarned = false;
   // Two windows of the tool share this browser's storage (every copy opened from disk does, in Chrome and Edge). Each
@@ -265,7 +318,6 @@ function createSitePlan(CFG) {
       toast('This drawing was changed in another window of the tool: showing that version.');
     }
     if (!takeShared() && D.ready && !offPlan()) alignHere(); // turned there: turned here too; a hidden tab is turned when shown
-    if (OV && !offPlan()) overlayRefresh({ adopt: true }); // the Overlay's own notes changed: read the tabs again too
     updateSide(); fillInfo(); updateUi(); renderChecks(); dirty();
   }
   window.addEventListener('storage', (e) => {
@@ -278,7 +330,7 @@ function createSitePlan(CFG) {
     if (!D.ready || offPlan() || !PLAN || !csShared.rec || csShared.rec.key !== D.key) return false;
     try { csSharedRead(localStorage.getItem('siteLogistics.shared')); } catch (e) { /* as last read */ } // a plan event comes before the shared one
     const sc = csShared.scales[D.key];
-    if (sc && !OV && JSON.stringify(scaledOf(sc)) !== JSON.stringify(scaledOf(PLAN.pages))) { takeSharedScale(true); updateSide(); dirty(); } // kept with the plan at its next save
+    if (sc && JSON.stringify(scaledOf(sc)) !== JSON.stringify(scaledOf(PLAN.pages))) { takeSharedScale(true); updateSide(); dirty(); } // kept with the plan at its next save
     if (sharedRot(D.page) === D.rot) return false;
     showPage(D.page, true); return true;
   }
@@ -286,8 +338,33 @@ function createSitePlan(CFG) {
     return {
       name, items: [], pages: {}, fade: 0, page: 1, sheetScale: 'auto', symSize: DEFAULT_SYM_SIZE, used: Date.now(),
       info: { project: '', address: '', title: CFG.sheetTitle, sheet: '', rev: '', by: store.by || '', checked: store.checked || '', date: today() },
-      ...(CFG.overlay ? { infoOwn: {} } : {}), // the Overlay: no field typed here yet (an Overlay plan without it is older)
+      layers: {}, // per layer, what differs from shown at full strength: { off: 1 } hidden, { op: 0.5 } its opacity
     };
+  }
+  // Work from before the layers: each tab kept its own plan per drawing (CFG.legacy names where), and the Overlay tab
+  // its text labels and dimensions. A drawing opened for the first time since gets one plan made of all of them, each
+  // item marked with its layer; the title block, scales and settings are the first tab's that had the drawing. Each
+  // tab turned its own items when it was shown, so items can face different ways on a turned page: those are marked
+  // with the way they face (_r) and brought round when the page is next shown (alignPage). The old plans stay stored.
+  function legacyPlan(name, key) {
+    if (!CFG.legacy) return null;
+    const read = (k) => { try { const j = JSON.parse(localStorage.getItem(k) || '{}'); return j && j.plans && j.plans[key]; } catch (e) { return null; } };
+    const found = Object.keys(CFG.legacy).filter((id) => LAYER[id]).map((id) => ({ id, p: read(CFG.legacy[id]) })).filter((x) => x.p && Array.isArray(x.p.items));
+    if (!found.length) return null;
+    const base = (found.find((x) => x.id !== NOTES) || found[0]).p;
+    const plan = Object.assign(newPlan(name), JSON.parse(JSON.stringify(base)), { items: [], layers: {}, views: {} });
+    delete plan.infoOwn;
+    if (base === (found.find((x) => x.id === NOTES) || {}).p) plan.info.title = CFG.sheetTitle; // only Overlay notes: its title was the Overlay's
+    const facing = (p, pg) => ((p.rot && +p.rot[pg]) || 0) & 3, ids = new Set();
+    found.forEach(({ id, p }) => p.items.forEach((it) => {
+      if (!it || !Array.isArray(it.pts)) return;
+      const c = JSON.parse(JSON.stringify(it));
+      c.layer = id;
+      if (ids.has(c.id)) c.id = uid(); ids.add(c.id);
+      if (facing(p, c.pg) !== facing(plan, c.pg)) c._r = facing(p, c.pg);
+      plan.items.push(c);
+    }));
+    return plan;
   }
   function prunePlans() { // keep the 40 most recently used drawings
     const keys = Object.keys(store.plans).sort((a, b) => (store.plans[b].used || 0) - (store.plans[a].used || 0));
@@ -337,7 +414,23 @@ function createSitePlan(CFG) {
   };
   const fmt = (n) => n.toFixed(1);
   function today() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
-  const items = () => (PLAN && D.ready ? PLAN.items.filter((i) => i.pg === D.page) : []);
+  // ---------- layers ----------
+  // Every item belongs to a layer (it.layer; older ones to their symbol's). A hidden layer is neither drawn, nor
+  // selected, snapped to, cleared or exported; a layer's opacity applies on screen and on the sheet alike.
+  const layerOf = (it) => (it.layer && LAYER[it.layer] ? it.layer : homeLayer(it.sym));
+  const layerSet = (id) => (PLAN && PLAN.layers && PLAN.layers[id]) || {};
+  const layerOn = (id) => !layerSet(id).off;
+  const layerOp = (id) => { const o = +layerSet(id).op; return o > 0 && o < 1 ? o : 1; };
+  // this page's items on the layers that show (everything drawn, snapped to, cleared or exported goes through here)
+  const items = () => (PLAN && D.ready ? PLAN.items.filter((i) => i.pg === D.page && layerOn(layerOf(i))) : []);
+  function layerMarkup(exp) { // the shown layers' items on this page, in layer order (the last on top), each at its opacity
+    const its = items(); let out = '';
+    for (const l of LAYERS) {
+      const s = its.filter((it) => layerOf(it) === l.id).map((it) => drawItem(it, exp)).join('');
+      if (s) out += layerOp(l.id) < 1 ? `<g opacity="${layerOp(l.id)}">${s}</g>` : s;
+    }
+    return out;
+  }
   const find = (id) => (PLAN ? PLAN.items.find((i) => i.id === id) : null);
   function pageCfg() { // the drawing scale, per page
     if (!PLAN) return {};
@@ -346,20 +439,33 @@ function createSitePlan(CFG) {
   }
   // ---------- turning a page ----------
   // A page can be shown turned by quarter turns (Rotate, in the Drawing panel), so a plan drawn sideways can be worked
-  // on and printed the right way up. The turn belongs to the drawing: every tab shows the page the same way
-  // (csShared.rots). Markup is stored in the coordinates of the page as it is shown, so when a page is turned the
-  // markup on it is turned with it: each plan notes which way its items for a page currently face (plan.rot), and is
-  // brought round to the page's turn the next time that page is shown, exported or overlaid.
+  // on and printed the right way up. The turn belongs to the drawing (csShared.rots, kept with the drawing across
+  // windows). Markup is stored in the coordinates of the page as it is shown, so when a page is turned the markup on it,
+  // on every layer, is turned with it: the plan notes which way its items for a page currently face (plan.rot), and is
+  // brought round to the page's turn the next time that page is shown or exported.
   const sharedRot = (n) => { const m = csShared.rots[D.key]; return ((m && +m[String(n)]) || 0) & 3; };
   const pdfVp = (page, scale) => page.getViewport({ scale, rotation: (page.rotate + 90 * D.rot) % 360 });
   function alignPage(plan, n, target, w0, h0) { // true if anything moved
     const k = String(n), cur = ((plan.rot && +plan.rot[k]) || 0) & 3, steps = (target - cur + 4) % 4;
-    if (!steps) return false;
-    let c = cur;
+    // items that came facing their own way (merged from the tabs, or a tab's plan file: _r) are first brought round to
+    // the way the plan's items face
+    let moved = false;
+    plan.items.filter((it) => it.pg === n && it._r != null).forEach((it) => {
+      const r = (+it._r || 0) & 3; delete it._r;
+      if (r !== cur) { turnItems([it], r, (cur - r + 4) % 4, w0, h0); moved = true; }
+    });
+    if (!steps) return moved;
+    turnItems(plan.items.filter((it) => it.pg === n), cur, steps, w0, h0);
+    if (!plan.rot) plan.rot = {};
+    if (target) plan.rot[k] = target; else delete plan.rot[k];
+    if (plan.views) delete plan.views[k]; // the view it was left in no longer fits: show it whole
+    return true;
+  }
+  function turnItems(list, from, steps, w0, h0) { // items of one page facing `from` quarter turns, turned `steps` more to the right
+    let c = from;
     for (let s = 0; s < steps; s++, c = (c + 1) % 4) {
       const h = c % 2 ? w0 : h0; // the page's height as it faces now; one turn to the right sends (x, y) to (h - y, x)
-      for (const it of plan.items) {
-        if (it.pg !== n) continue;
+      for (const it of list) {
         it.pts = it.pts.map((p) => [h - p[1], p[0]]);
         if (Number.isFinite(it.a0)) it.a0 = (it.a0 + 90) % 360; // a crane's swing turns with the page
         // a turned text label turns with the page too (it runs along something drawn), a quarter turn right being -90 to
@@ -372,15 +478,10 @@ function createSitePlan(CFG) {
         }
       }
     }
-    if (!plan.rot) plan.rot = {};
-    if (target) plan.rot[k] = target; else delete plan.rot[k];
-    if (plan.views) delete plan.views[k]; // the view it was left in no longer fits: show it whole
-    return true;
   }
-  function alignHere() { // this page's markup, in every plan in play, round to the way the page is shown
+  function alignHere() { // this page's markup round to the way the page is shown
     if (!D.w0 || !D.h0) return;
     if (PLAN && alignPage(PLAN, D.page, D.rot, D.w0, D.h0)) { R.undo = []; save(); } // an undo would bring back points from before the turn
-    if (OV) OV.tabs.forEach((t) => { if (t.plan) alignPage(t.plan, D.page, D.rot, D.w0, D.h0); });
   }
   function turned(img, r) { // the image a number of quarter turns to the right, as a canvas
     const w = img.naturalWidth, h = img.naturalHeight, cv = document.createElement('canvas');
@@ -411,7 +512,7 @@ function createSitePlan(CFG) {
     if (r) m[k] = r; else delete m[k];
     const keys = Object.keys(csShared.rots); if (keys.length > 40) delete csShared.rots[keys.find((x) => x !== D.key)];
     csSharedSave('rot');
-    showPage(D.page, true).then(() => { if (OV) overlayPanel(); });
+    showPage(D.page, true).then(() => renderLegend());
   }
   const mpu = () => (PLAN && pageCfg().mpu) || null; // metres per drawing unit, once the scale is set
   const symSize = () => (PLAN && SYM_SIZES.find((x) => x[0] === PLAN.symSize)) || SYM_SIZES[0];
@@ -919,7 +1020,7 @@ function createSitePlan(CFG) {
     const fr = sheetFrame();
     R.frz = fr.z;
     let out = '';
-    if (OV) out += overlayMarkup(false); else for (const it of items()) out += drawItem(it, false);
+    out += layerMarkup(false);
     out += extentMarkup(fr) + drawHandles() + drawDraft() + drawSnap() + drawZoomWin();
     R.layer.innerHTML = out;
     const m = mpu();
@@ -1507,8 +1608,9 @@ function createSitePlan(CFG) {
       }
       D.name = D.set ? name.replace(/\.zip$/i, '') : name; D.key = file.key || name + '|' + buf.byteLength;
       syncPlans(); // its plan as last stored, by this window or another
-      PLAN = store.plans[D.key] || (store.plans[D.key] = newPlan(name));
+      PLAN = store.plans[D.key] || (store.plans[D.key] = legacyPlan(name, D.key) || newPlan(name)); // first time with layers: the tabs' work, together
       PLAN.info = Object.assign(newPlan(name).info, PLAN.info || {});
+      if (!PLAN.layers || typeof PLAN.layers !== 'object') PLAN.layers = {};
       englishPlan(PLAN); // text saved here before the tool went English-only
       if (!PLAN.sheetScale) PLAN.sheetScale = 'auto';
       PLAN.symSize = SYM_SIZES.some((x) => x[0] === PLAN.symSize) ? PLAN.symSize : DEFAULT_SYM_SIZE; // as loadPlanFile does
@@ -1697,7 +1799,8 @@ function createSitePlan(CFG) {
     pushUndo(); PLAN.items = PLAN.items.filter((i) => i.pg !== D.page); R.sel = null; R.draft = null; save(); dirty(); updateUi();
   }
   function addItem(sym, pts, extra) {
-    pushUndo(); const it = Object.assign({ id: uid(), sym, pg: D.page, pts }, extra); PLAN.items.push(it); R.sel = null; save(); dirty();
+    const layer = R.lyr && LAYER[R.lyr] ? R.lyr : homeLayer(sym); // the layer of the legend row picked (arm)
+    pushUndo(); const it = Object.assign({ id: uid(), sym, pg: D.page, pts, layer }, extra); PLAN.items.push(it); R.sel = null; save(); dirty();
     if (ZONE_SYM[sym]) { setMode('select'); R.sel = it.id; dirty(); updateUi(); } // back to select so the new zone can be reshaped
     return it;
   }
@@ -2000,17 +2103,15 @@ function createSitePlan(CFG) {
   const layoutOf = (it) => { const byPlan = labelLayout().get(PLAN); return (byPlan && byPlan.get(it.id)) || null; };
   const specDir = (it) => { const e = layoutOf(it); return (e && e.dir) || 'below'; };
   // ---------- the cranes' figures, laid out for the whole page at once ----------
-  // One layout per drawing pass (a screen frame, an image export, a PDF page). On the Overlay tab it spans every shown tab
-  // and the Overlay's own notes, so cranes from different tabs keep clear of each other and of the text labels and
-  // dimensions. Every symbol, every text label and every dimension's figure is marked as taken first; then the cranes
+  // One layout per drawing pass (a screen frame, an image export, a PDF page). It spans every shown layer, so cranes on
+  // different layers keep clear of each other and of the text labels and dimensions. Every symbol, every text label and every dimension's figure is marked as taken first; then the cranes
   // are taken in order and each one's figures go below its symbol, or else to the first of above / right / left that is
   // on the sheet and clear of everything taken so far. The layout is kept until the view, the page or a plan changes
   // (dirty() counts changes; a fingerprint of the items backs it). Result: plan -> (item id -> { dir }).
   const withPlan = (p, fn) => { const o = PLAN; PLAN = p; try { return fn(); } finally { PLAN = o; } };
   function labelLayout() {
-    // the plans drawn together: the Overlay's shown tabs and its own notes (R.ovOwn, set where the Overlay draws), else this plan
-    const own = OV ? (R.ovOwn || PLAN) : PLAN;
-    const plans = OV ? OV.tabs.filter((t) => t.plan && !OV.off[t.id]).map((t) => t.plan).concat(own ? [own] : []) : [PLAN];
+    // the plan drawn (one, with its layers: items() gives the shown layers' items, so a layer turned off frees its room)
+    const plans = [PLAN];
     let sig = 0;
     for (const p of plans) withPlan(p, () => {
       sig = (sig * 31 + 1 + (mpu() || 0) * 1e4 + (SYM_SIZES.findIndex((x) => x[0] === p.symSize) + 2) * 29) % 1e9;
@@ -2331,7 +2432,7 @@ function createSitePlan(CFG) {
   // The Checklist button opens it over the right edge of the drawing. It lists the checks for every site, then the
   // ones for the city named in the site address. Ticks are kept with the plan (PLAN.checks), so each drawing has its
   // own, and they travel in a saved plan file.
-  const CK = CFG.id === 'mobilization' ? window.__CS_CRANE_CHECKS || null : null;
+  const CK = window.__CS_CRANE_CHECKS || null; // the crane setup checklist (was Site Mobilization's alone; the layers share one view)
   const ckKey = (scope, text) => { let h = 5381; for (let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0; return scope + '.' + h.toString(36); };
   function renderChecks() {
     const el = R.checks;
@@ -2611,7 +2712,7 @@ function createSitePlan(CFG) {
     return csShared.loaded;
   }
   function shareScale(page) { // this tab changed the drawing's scale (of one page, or all of them): it is every tab's now
-    if (!PLAN || !D.key || OV) return;
+    if (!PLAN || !D.key) return;
     if (page) { // only that page's: another window may have set the others since (review, 2026-11-17)
       const m = Object.assign({}, csShared.scales[D.key] || {}), c = (PLAN.pages || {})[page];
       if (c) m[page] = JSON.parse(JSON.stringify(c)); else delete m[page];
@@ -2653,96 +2754,61 @@ function createSitePlan(CFG) {
     updateSide(); dirty();
   }
 
-  // ---------- the Overlay tab: every other tab's markup on one drawing, to see how the plans sit together ----------
-  // It draws nothing of its own. Each time it is shown it reads the other tabs' saved work, takes the drawing most of
-  // them have open, opens that drawing here, and lays each tab's markup for it on top as one see-through layer
-  // (40% to start). A tab on a different drawing, or with none, is listed and left out.
-  const OV = CFG.overlay ? { tabs: [], key: null, opacity: 0.4, off: {} } : null;
-  function overlayMarkup(exp) { // each tab's items on this page, drawn with that tab's own scale and symbol size; then this tab's own notes
-    let out = '';
-    const own = PLAN;
-    R.ovOwn = own; // the label layout spans every shown tab and these notes
-    for (const t of OV.tabs) {
-      if (!t.plan || OV.off[t.id]) continue;
-      PLAN = t.plan;
-      try { const s = items().map((it) => drawItem(it, true)).join(''); if (s) out += `<g opacity="${OV.opacity}">${s}</g>`; }
-      finally { PLAN = own; }
+  // ---------- the legend: the layers ----------
+  // Each layer (plans.js) is a heading in the legend: an eye to show or hide it, its name and how many items it has on
+  // this page, and its opacity; under it, dropped down or not, its symbols and hatches, and picking one places it on
+  // that layer (user, 2026-11-19: "the tabs are going to the legend to work like layers, with a drop-down of options
+  // for symbols and hatches ... visibility toggle and opacity can be changed for each discipline"). The layer being
+  // worked on (the tool in hand, or the item selected) is marked. Shown or hidden and the opacity are kept with the plan
+  // (they decide what the export prints); which lists are dropped down is kept with this browser (store.open).
+  const EYE_ON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12c2.6-4.4 6-6.6 10-6.6s7.4 2.2 10 6.6c-2.6 4.4-6 6.6-10 6.6S4.6 16.4 2 12Z" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/></svg>';
+  const EYE_OFF = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12c2.6-4.4 6-6.6 10-6.6s7.4 2.2 10 6.6c-2.6 4.4-6 6.6-10 6.6S4.6 16.4 2 12Z" fill="none" stroke="currentColor" stroke-width="1.9" opacity=".45"/><path d="M4 20 20 4" stroke="currentColor" stroke-width="2.1"/></svg>';
+  function legendHtml() {
+    return LAYERS.map((l) => `<div class="cs-lyr" data-layer="${l.id}">` +
+      '<div class="cs-lyr-head">' +
+      `<button type="button" class="cs-lyr-eye" data-eye aria-pressed="true" title="Show or hide the ${esc(l.label)} layer, on screen and on the sheet">${EYE_ON}</button>` +
+      `<button type="button" class="cs-lyr-name" data-fold aria-expanded="false" title="Show or hide the ${esc(l.label)} symbols"><span class="cs-lyr-car" aria-hidden="true"></span><b>${esc(l.label)}</b><small class="cs-lyr-n"></small></button>` +
+      `<label class="cs-lyr-op" title="Opacity of the ${esc(l.label)} layer, on screen and on the sheet"><input type="range" data-op min="0.1" max="1" step="0.05" value="1" aria-label="${esc(l.label)} opacity"><span>100%</span></label>` +
+      '</div>' +
+      // a layer of one section needs no second heading; Site Mobilization's several keep theirs
+      `<div class="cs-lyr-body">${l.sections.map((sec) => (l.sections.length > 1 ? `<div class="cs-sec">${esc(sec.title)}</div>` : '') + legendRows(sec.items, l.id)).join('')}` +
+      (l.notes ? '<div class="cs-lyr-note">Text and Dimension in the toolbar place them here too.</div>' : '') + '</div>' +
+      '</div>').join('');
+  }
+  const activeLayer = () => (R.mode === 'draw' && R.tool && R.lyr) || (R.sel && find(R.sel) ? layerOf(find(R.sel)) : null);
+  function renderLegend() {
+    if (!R.legend) return;
+    if (!store.open || typeof store.open !== 'object') store.open = {};
+    if (!Object.keys(store.open).length) store.open[LAYERS[0].id] = 1; // the first time: the first layer's symbols showing
+    const here = PLAN && D.ready ? PLAN.items.filter((i) => i.pg === D.page) : [], act = activeLayer();
+    R.legend.querySelectorAll('.cs-lyr').forEach((el) => {
+      const id = el.dataset.layer, on = layerOn(id), op = layerOp(id), n = here.filter((i) => layerOf(i) === id).length, open = !!store.open[id];
+      el.classList.toggle('cs-lyr-off', !on); el.classList.toggle('cs-lyr-open', open); el.classList.toggle('cs-lyr-act', id === act);
+      const eye = el.querySelector('[data-eye]');
+      if (eye.getAttribute('aria-pressed') !== String(on)) { eye.setAttribute('aria-pressed', String(on)); eye.innerHTML = on ? EYE_ON : EYE_OFF; }
+      eye.disabled = !PLAN;
+      el.querySelector('[data-fold]').setAttribute('aria-expanded', String(open));
+      el.querySelector('.cs-lyr-n').textContent = n ? `${n} on this page` : '';
+      const r = el.querySelector('[data-op]');
+      r.disabled = !PLAN;
+      if (document.activeElement !== r && +r.value !== op) r.value = op;
+      r.nextElementSibling.textContent = Math.round(op * 100) + '%';
+    });
+  }
+  function setLayer(id, ch, noSave) { // ch: { off } and/or { op }; noSave: a slider still moving (saved on its change)
+    if (!PLAN || !LAYER[id]) return;
+    const cur = Object.assign({}, layerSet(id), ch);
+    if (!cur.off) delete cur.off;
+    if (!(cur.op > 0 && cur.op < 1)) delete cur.op;
+    PLAN.layers = Object.assign({}, PLAN.layers);
+    if (Object.keys(cur).length) PLAN.layers[id] = cur; else delete PLAN.layers[id];
+    if (cur.off) { // hidden: nothing on it stays selected or in hand
+      const s = R.sel && find(R.sel);
+      if (s && layerOf(s) === id) { R.sel = null; if (R.specId === s.id) closeSpec(); }
+      if (R.mode === 'draw' && R.lyr === id) setMode('pan');
     }
-    return out + items().map((it) => drawItem(it, exp)).join(''); // text labels and dimensions, at full strength
-  }
-  function overlayLegend() { // one heading per tab, with the symbols it has on this page
-    const secs = OV.tabs.filter((t) => t.plan && !OV.off[t.id]).map((t) => {
-      const on = t.plan.items.filter((i) => i.pg === D.page), used = new Set(on.map((i) => ZONE_SYM[i.sym] || i.sym));
-      return withTailRow([{ title: t.label.toUpperCase(), rows: Object.keys(SYM).filter((id) => used.has(id)).map((id) => SYM[id]) }], withPlan(t.plan, () => mpu()) ? on : [])[0];
-    }).filter((s) => s.rows.length);
-    return secs.length ? secs : [{ title: 'LEGEND', rows: [] }];
-  }
-  function overlayPanel() {
-    const n = (t) => (t.plan ? t.plan.items.filter((i) => i.pg === D.page).length : 0);
-    const shown = OV.tabs.filter((t) => t.plan), left = OV.tabs.filter((t) => !t.plan);
-    const head = !OV.key ? 'No drawing is open yet. Open one on any tab; every tab then shows it, and their markup shows together here.'
-      : left.length ? `Showing the ${shown.length} tab${shown.length === 1 ? '' : 's'} with markup on ${D.name || 'this drawing'}.`
-        : `All ${shown.length} tabs are on ${D.name || 'this drawing'}.`;
-    R.legend.innerHTML = `<div class="cs-sec">OVERLAY</div><div class="cs-ov-note">${esc(head)}</div>` +
-      OV.tabs.map((t) => `<label class="cs-ov-row${t.plan ? '' : ' cs-ov-out'}"><input type="checkbox" data-ov="${t.id}"${t.plan && !OV.off[t.id] ? ' checked' : ''}${t.plan ? '' : ' disabled'}>` +
-        `<span><b>${esc(t.label)}</b><small>${esc(t.plan ? `${n(t)} item${n(t) === 1 ? '' : 's'} on this page` : t.other ? `on a different drawing: ${t.other}` : OV.key ? 'no markup on this drawing' : 'no drawing open')}</small></span></label>`).join('') +
-      `<label class="cs-rng cs-ov-op"><span>Opacity of each tab's markup</span><input type="range" data-ov-op min="0.1" max="1" step="0.05" value="${OV.opacity}"><b>${Math.round(OV.opacity * 100)}%</b></label>` +
-      '<div class="cs-ov-note">This tab shows the other tabs\' work; change that on its own tab. Text and Dimension, in the toolbar, add notes that belong to this tab. It refreshes each time you come back.</div>' +
-      '<div class="cs-line cs-ov-btn"><button class="cs-btn" data-ov-refresh>Refresh</button></div>';
-  }
-  const ovFilled = (v) => !!String(v || '').trim();
-  const ovFromTabs = (k) => { const t = OV.tabs.find((x) => x.plan && x.plan.info && ovFilled(x.plan.info[k])); return t ? t.plan.info[k] : null; };
-  function migrateInfoOwn() { // an Overlay plan from before typed fields were kept: what differs from the tabs was typed here
-    if (!OV || !PLAN || PLAN.infoOwn) return;
-    const first = OV.tabs.find((t) => t.plan), fi = (first && first.plan.info) || {};
-    PLAN.infoOwn = {};
-    Object.keys(PLAN.info || {}).forEach((k) => { const v = PLAN.info[k]; if (ovFilled(v) && (k === 'title' ? v !== CFG.sheetTitle : v !== fi[k] && v !== ovFromTabs(k))) PLAN.infoOwn[k] = 1; });
-  }
-  async function overlayRefresh(opts) { // opts.adopt: after taking another window's save, which this does not write back
-    const adopt = !!(opts && opts.adopt === true);
-    if (R.exporting) { R.activatePending = true; return; } // during its own export: refreshed after it (sheets stay alike)
-    await sharedLoad();
-    const read = (c) => { try { const j = JSON.parse(localStorage.getItem(c.storeKey) || '{}'); return { cfg: c, plans: j.plans || {} }; } catch (e) { return { cfg: c, plans: {} }; } };
-    const src = CFG.overlay.map(read), rec = csShared.rec, key = rec ? rec.key : null; // the drawing all the tabs share
-    OV.key = key;
-    OV.tabs = src.map((x) => ({ id: x.cfg.id, label: x.cfg.label, plan: englishPlan((key && x.plans[key]) || null), other: null }));
-    if (!key) { if (D.ready) closeDoc(); updateSide(); fillInfo(); overlayPanel(); dirty(); return; }
-    if (D.key !== key) await openFile({ name: rec.name, type: rec.type, data: rec.data, key: rec.key }, true);
-    if (!D.ready || D.key !== key) { overlayPanel(); return; }
-    const pg = Math.min(D.pages, Math.max(1, csShared.page));
-    if (D.page !== pg || D.rot !== sharedRot(pg)) await showPage(pg, true);
-    alignHere(); // the tabs' markup was just read afresh: round to this page's turn
-    if (PLAN) { // the drawing scale and title block come from the tabs: the first one that has each
-      const was = workOf(PLAN);
-      // the drawing's scale is the shared one (a tab's stored copy can be older: it re-saves only when next shown);
-      // a page it lacks takes the first tab's that has one. Each tab's cranes are sized by it, as on their own tabs.
-      const pages = {}, sc = csShared.scales[key] || {};
-      const set = (k) => sc[k] && (sc[k].mpu > 0 || sc[k].cleared); // a scale set or cleared there (a page only looked at is neither)
-      Object.keys(sc).forEach((k) => { if (set(k)) pages[k] = { mpu: sc[k].mpu > 0 ? sc[k].mpu : null }; });
-      OV.tabs.forEach((t) => t.plan && Object.keys(t.plan.pages || {}).forEach((k) => {
-        if (set(k)) return;
-        const c = t.plan.pages[k] || {};
-        if (!pages[k]) pages[k] = { mpu: c.mpu || null }; else if (!pages[k].mpu && c.mpu) pages[k].mpu = c.mpu;
-      }));
-      PLAN.pages = pages;
-      OV.tabs.forEach((t) => {
-        if (!t.plan) return;
-        t.plan.pages = JSON.parse(JSON.stringify(pages));
-        (t.plan.items || []).forEach((it) => { const m = (pages[it.pg] || {}).mpu; if (m > 0 && it.spec && it.spec.jib > 0) it.r = it.spec.jib / m; });
-      });
-      // title block: a field typed on the Overlay stays (PLAN.infoOwn); each other field comes from the first tab that
-      // has it filled in, and the sheet title is the Overlay's own
-      const blank = newPlan(D.name).info, info = {};
-      migrateInfoOwn();
-      Object.keys(blank).forEach((k) => {
-        if (PLAN.infoOwn[k] && ovFilled(PLAN.info[k])) info[k] = PLAN.info[k];
-        else if (k === 'title') info[k] = CFG.sheetTitle;
-        else { const v = ovFromTabs(k); info[k] = v != null ? v : k === 'by' || k === 'checked' ? '' : blank[k]; } // a field no tab has any more is emptied here too (names: not this window's remembered ones)
-      });
-      PLAN.info = info;
-      if (!adopt && workOf(PLAN) !== was) save(); // unchanged: no write (two windows on the Overlay echoed each keystroke back)
-    }
-    fillInfo(); updateSide(); overlayPanel(); dirty();
+    if (!noSave) save();
+    renderLegend(); updateUi(); dirty();
   }
 
   // ---------- export: a 17 x 11 in sheet with the visible drawing, the markup and a legend of what was used ----------
@@ -2759,16 +2825,21 @@ function createSitePlan(CFG) {
     });
   }
   const toBlob = (cv, type, q) => new Promise((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error('the browser could not make the image (too large?)'))), type, q));
-  function legendModel() { // only the symbols and hatches used on this page: a page with none prints the LEGEND heading alone
-    if (OV) return overlayLegend();
-    const used = new Set(items().map((i) => ZONE_SYM[i.sym] || i.sym)); // an area counts as its symbol
-    const secs = SECTIONS.map((s) => ({ title: s.title, rows: s.items.filter((r) => used.has(r.id)) }))
-      .filter((s, i) => i === 0 || s.rows.length);
-    // symbols on the page that this tab's legend no longer lists (placed before they moved to another tab) still get a row
-    const listed = new Set(SECTIONS.flatMap((s) => s.items.map((i) => i.id)));
-    const other = [...used].filter((id) => SYM[id] && !listed.has(id)).map((id) => SYM[id]);
-    if (other.length) secs.push({ title: 'OTHER', rows: other });
-    return withTailRow(secs, mpu() ? items() : []); // no scale: no tail line is drawn, so no row
+  // The exported legend: for each shown layer with something on this page, its name as a heading and the symbols and
+  // hatches used, in its legend's order (text labels and dimensions speak for themselves). Nothing used: the LEGEND
+  // heading alone.
+  function legendModel() {
+    const its = items(), secs = [];
+    for (const l of LAYERS) {
+      if (l.notes) continue;
+      const on = its.filter((i) => layerOf(i) === l.id);
+      if (!on.length) continue;
+      const used = new Set(on.map((i) => ZONE_SYM[i.sym] || i.sym)), rows = []; // an area counts as its symbol
+      l.sections.forEach((sec) => sec.items.forEach((r) => { if (used.has(r.id) && !rows.includes(r)) rows.push(r); }));
+      [...used].filter((id) => SYM[id] && !rows.includes(SYM[id])).forEach((id) => rows.push(SYM[id])); // one this layer does not list (a plan file put it here)
+      if (rows.length) secs.push(withTailRow([{ title: l.label.toUpperCase(), rows }], mpu() ? on : [])[0]);
+    }
+    return secs.length ? secs : [{ title: 'LEGEND', rows: [] }];
   }
   function wrapText(g, text, maxW) {
     const words = text.split(/\s+/), lines = [];
@@ -2806,7 +2877,7 @@ function createSitePlan(CFG) {
     // markup, drawn as on screen, with 1 screen px = 1 sheet unit (1/100 in)
     const vv = { z: fr.z, cx: fr.cx, cy: fr.cy, w: MAP_IN.w, h: MAP_IN.h };
     R.frz = fr.z; // again: a screen redraw during the awaits above sets it to the screen's frame
-    const svg = noMarkup ? '' : withView(vv, () => (OV ? overlayMarkup(true) : items().map((it) => drawItem(it, true)).join('')));
+    const svg = noMarkup ? '' : withView(vv, () => layerMarkup(true));
     if (svg) g.drawImage(await svgImage(svg, `0 0 ${vv.w} ${vv.h}`, iw, ih), 0, 0, iw, ih);
     g.scale(u, u);
     const m = mpu();
@@ -2964,7 +3035,7 @@ function createSitePlan(CFG) {
   // ---------- plan files: the markup, scales and title block as .json, so the work is not only in this browser ----------
   function savePlanFile() {
     if (!PLAN) { toast('Open a drawing first.', 'err'); return; }
-    const data = { app: 'site-logistics', tab: CFG.id, version: 1, saved: new Date().toISOString(), drawing: { name: D.name, pages: D.pages }, plan: PLAN };
+    const data = { app: 'site-logistics', tab: CFG.id, version: 2, saved: new Date().toISOString(), drawing: { name: D.name, pages: D.pages }, plan: PLAN };
     download(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }), fileBase() + '.json');
     toast('Saved the plan file. Open the same drawing and use Load plan to bring it back.');
   }
@@ -2977,7 +3048,8 @@ function createSitePlan(CFG) {
     if (pts.some((p) => isNaN(p[0]) || isNaN(p[1]) || Math.abs(p[0]) > 1e7 || Math.abs(p[1]) > 1e7)) return null; // not a number, or nowhere near a drawing
     const kind = (STYLE[it.sym] || {}).kind;
     if ((kind === 'line' && pts.length < 2) || (kind === 'area' && pts.length < 3)) return null; // too few points to draw
-    const c = { id: uid(), sym: it.sym, pg: Math.max(1, Math.round(num(it.pg)) || 1), pts };
+    const c = { id: uid(), sym: it.sym, pg: Math.max(1, Math.round(num(it.pg)) || 1), pts, layer: LAYER[it.layer] ? it.layer : homeLayer(it.sym) };
+    if ([0, 1, 2, 3].includes(it._r)) c._r = it._r; // still facing the way it came (not yet shown since the layers came)
     if (it.sym === '_text') {
       c.text = cleanText(it.text, 120); if (!c.text) return null;
       if (/^#[0-9a-f]{6}$/i.test(String(it.color || '')) && it.color.toLowerCase() !== LABEL_INK) c.color = it.color.toLowerCase(); // its colour
@@ -2998,36 +3070,46 @@ function createSitePlan(CFG) {
     if (!p || !Array.isArray(p.items)) { toast(file.name + ' is not a Site Logistics plan file.', 'err'); return; }
     if (p.items.length > MAX_PLAN_ITEMS) { toast(`${file.name} has ${p.items.length.toLocaleString()} items; a plan file can hold ${MAX_PLAN_ITEMS.toLocaleString()} at most.`, 'err'); return; }
     const other = j.drawing && j.drawing.name && j.drawing.name !== D.name;
-    const otherTab = (j.tab || 'mobilization') !== CFG.id; // files saved before the tabs existed are Site Mobilization plans
-    if (!(await csConfirm((otherTab ? `This plan file was saved from a different tab, not ${CFG.label}. ` : '') + (other ? `This plan was made on ${j.drawing.name}, and ${D.name} is open. ` : '') +
-      'Replace the markup, scales and title block on this drawing with the ones in the file?'))) return;
+    // A file from one of the tabs, from before the layers (files from before the tabs are Site Mobilization's; the
+    // Overlay's held its text labels and dimensions): it replaces that layer's markup only.
+    const tab = j.tab || 'mobilization', one = tab === CFG.id ? null : tab === 'overlay' ? NOTES : LAYER[tab] ? tab : LAYERS[0].id;
+    if (!(await csConfirm((other ? `This plan was made on ${j.drawing.name}, and ${D.name} is open. ` : '') + (one
+      ? `This plan file is from the ${LAYER[one].label} tab, from before the layers. Replace the ${LAYER[one].label} layer's markup on this drawing with the file's? The other layers, the scales and the title block stay as they are.`
+      : 'Replace the markup on every layer, the scales and the title block on this drawing with the ones in the file?')))) return;
     const fresh = newPlan(D.name), pages = {};
     Object.keys(p.pages || {}).filter((k) => /^[1-9]\d*$/.test(k)).forEach((k) => { const c = p.pages[k] || {}; pages[k] = num(c.mpu) > 0 ? { mpu: num(c.mpu) } : c.cleared ? { mpu: null, cleared: 1 } : { mpu: null }; }); // cleared in the file: cleared here too
     const rot = {}; // which way the file's items face, page by page: they are brought round to this drawing's pages below
     Object.keys(p.rot || {}).filter((k) => /^[1-9]\d*$/.test(k)).forEach((k) => { const r = Math.round(num(p.rot[k])); if (r >= 1 && r <= 3) rot[k] = r; });
+    const got = p.items.map(cleanItem).filter(Boolean);
+    if (one) {
+      got.forEach((it) => { // on that layer, each still facing the way the file's page did
+        it.layer = one;
+        if (it._r == null && (rot[it.pg] || 0) !== (((PLAN.rot && +PLAN.rot[it.pg]) || 0) & 3)) it._r = rot[it.pg] || 0;
+      });
+      PLAN.items = PLAN.items.filter((i) => layerOf(i) !== one).concat(got);
+      alignHere(); syncCraneReach();
+      R.undo = []; R.sel = null; save(); updateUi(); renderChecks(); dirty();
+      toast(`Loaded ${got.length} item${got.length === 1 ? '' : 's'} from ${file.name} onto the ${LAYER[one].label} layer.`);
+      return;
+    }
+    const layers = {}; // shown or hidden, and the opacity, of each layer the file names
+    Object.keys(p.layers && typeof p.layers === 'object' ? p.layers : {}).filter((id) => LAYER[id]).forEach((id) => {
+      const x = p.layers[id] || {}, c = {}, op = num(x.op);
+      if (x.off) c.off = 1;
+      if (op > 0 && op < 1) c.op = Math.max(0.1, op);
+      if (Object.keys(c).length) layers[id] = c;
+    });
     Object.assign(PLAN, {
-      items: p.items.map(cleanItem).filter(Boolean), pages, rot, views: {}, fade: Math.min(0.85, Math.max(0, num(p.fade) || 0)),
+      items: got, pages, rot, views: {}, layers, fade: Math.min(0.85, Math.max(0, num(p.fade) || 0)),
       sheetScale: FIXED_SCALES.some((s) => s[0] === +p.sheetScale) ? +p.sheetScale : 'auto',
       symSize: SYM_SIZES.some((x) => x[0] === p.symSize) ? p.symSize : DEFAULT_SYM_SIZE,
       info: Object.keys(fresh.info).reduce((o, k) => ((o[k] = typeof (p.info || {})[k] === 'string' ? cleanText(p.info[k], 200) : fresh.info[k]), o), {}),
       checks: Object.keys(p.checks && typeof p.checks === 'object' ? p.checks : {}).filter((k) => p.checks[k] && /^[a-z0-9_-]{1,40}\.[a-z0-9]{1,13}$/i.test(k)).slice(0, 2000)
         .reduce((o, k) => ((o[k] = 1), o), {}), // the checklist ticks saved with the plan replace this drawing's
     });
-    // On the Overlay, the file's filled-in title block fields are kept over the tabs'. Its sheet title is kept only when
-    // it was typed on an Overlay (saved as such in the file); otherwise the Overlay's own title shows at once.
-    if (OV) {
-      const fileOwn = !otherTab && p.infoOwn && typeof p.infoOwn === 'object' ? p.infoOwn : null;
-      if (!(fileOwn ? fileOwn.title : !otherTab && PLAN.info.title && PLAN.info.title !== CFG.sheetTitle)) PLAN.info.title = CFG.sheetTitle;
-      // an Overlay file says which fields were typed on it (the rest follow the tabs, as then); from any other file,
-      // every filled-in field is the file's
-      if (!otherTab && !fileOwn) delete PLAN.infoOwn; // an Overlay file from before typed fields were kept: overlayRefresh works out which were
-      else PLAN.infoOwn = Object.keys(PLAN.info).filter((k) => ovFilled(PLAN.info[k]) && (k === 'title' ? PLAN.info.title !== CFG.sheetTitle
-        : !fileOwn || fileOwn[k] || PLAN.info[k] !== ovFromTabs(k))) // and what the tabs here do not say (a file handed to another computer)
-        .reduce((o, k) => ((o[k] = 1), o), {});
-    } else delete PLAN.infoOwn;
+    delete PLAN.infoOwn;
     alignHere(); syncCraneReach();
     R.undo = []; R.sel = null; save(); shareScale(); takeSharedScale(); fillInfo(); updateSide(); updateUi(); renderChecks(); dirty(); // a page the file has no scale for takes the drawing's at once
-    if (OV && !offPlan()) overlayRefresh(); // the fields the file leaves blank come from the tabs
     toast(`Loaded ${PLAN.items.length} item${PLAN.items.length === 1 ? '' : 's'} from ${file.name}.`);
   }
 
@@ -3216,20 +3298,13 @@ function createSitePlan(CFG) {
   async function sheetAnnots(fr) {
     R.frz = fr.z;
     const vv = { z: fr.z, cx: fr.cx, cy: fr.cy, w: MAP_IN.w, h: MAP_IN.h };
-    const parts = withView(vv, () => {
-      if (!OV) return items().flatMap((it) => annotParts(it, vv).map((a) => Object.assign(a, { id: it.id })));
-      // the Overlay tab: every shown tab's items, each named for its tab and written at the overlay's opacity
-      const own = PLAN, all = [];
-      R.ovOwn = own; // the label layout spans every shown tab and these notes
-      for (const t of OV.tabs) {
-        if (!t.plan || OV.off[t.id]) continue;
-        PLAN = t.plan;
-        try { items().forEach((it) => annotParts(it, vv).forEach((a) => all.push(Object.assign(a, { id: it.id, subj: t.label + ' - ' + a.subj, layer: t.label, op: OV.opacity })))); }
-        finally { PLAN = own; }
-      }
-      items().forEach((it) => annotParts(it, vv).forEach((a) => all.push(Object.assign(a, { id: it.id, layer: 'Notes and dimensions' })))); // this tab's own
-      return all;
-    });
+    // every shown layer's items, in layer order (the last on top, as on screen): each named for its layer ("Site Safety -
+    // Fire Hydrant"), on a PDF layer of its own, and at the layer's opacity
+    const rank = (it) => LAYERS.findIndex((l) => l.id === layerOf(it));
+    const parts = withView(vv, () => items().map((it, i) => [it, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).flatMap(([it]) => {
+      const l = LAYER[layerOf(it)], op = layerOp(l.id);
+      return annotParts(it, vv).map((a) => Object.assign(a, { id: it.id, subj: l.label + ' - ' + a.subj, layer: l.label }, op < 1 ? { op } : {}));
+    }));
     const out = [];
     for (const a of parts) {
       if (a.upright) { // a turned text label: its upright picture, turned by the annotation's matrix (see annotParts)
@@ -3268,7 +3343,7 @@ function createSitePlan(CFG) {
       const d = g.getImageData(0, 0, pw, ph).data, rgb = new Uint8Array(pw * ph * 3), al = new Uint8Array(pw * ph);
       for (let i = 0, j = 0; i < pw * ph; i++) { rgb[j++] = d[i * 4]; rgb[j++] = d[i * 4 + 1]; rgb[j++] = d[i * 4 + 2]; al[i] = Math.round(d[i * 4 + 3] * (a.op || 1)); }
       cv.width = cv.height = 0;
-      // see-through (Overlay): the picture carries it, and /CA and /FillOpacity tell Revu, which uses them when it redraws
+      // see-through (a layer's opacity): the picture carries it, and /CA and /FillOpacity tell Revu, which uses them when it redraws
       const extra = a.op ? a.extra.replace(/\/FillOpacity ([\d.]+)/, (m, v) => '/FillOpacity ' + pn(v * a.op)) + ' /CA ' + pn(a.op) : a.extra;
       const a0 = sheetPt([a.rect[0], a.rect[3]]), a1 = sheetPt([a.rect[2], a.rect[1]]), i0 = sheetPt([x0, y1]), i1 = sheetPt([x1, y0]);
       out.push({ sub: a.sub, subj: a.subj, contents: a.contents, id: a.id, layer: a.layer, extra, rect: [a0[0], a0[1], a1[0], a1[1]], img: [i0[0], i0[1], i1[0] - i0[0], i1[1] - i0[1]],
@@ -3293,8 +3368,8 @@ function createSitePlan(CFG) {
       `/Measure << /Type /Measure /Subtype /RL /R (1 mm = ${+(N / 1000).toFixed(4)} m) /X [${nf('m', (N * 0.0254 / 72).toPrecision(8))}] /D [${nf('m', 1)}] /A [${nf('sq m', 1)}] >> >>]` : '');
     const date = pdfDate();
     const nums = pages.map((p) => ({ page: next++, img: next++, content: next++, ids: p.annots.map(() => { const n = next; next += 4; return n; }) }));
-    // PDF layers (optional content groups), as the Elevate template has them: Linear Markups, Equipment/Symbols, Crane
-    // Radius, Building Outline; on the Overlay tab, one per tab. Revu and Acrobat can switch each on and off.
+    // PDF layers (optional content groups): one per layer of the plan (Site Mobilization, Site Safety, ...), named as
+    // in the legend. Revu and Acrobat can switch each on and off.
     const layerIds = {};
     pages.forEach((p) => p.annots.forEach((a) => { if (a.layer && !layerIds[a.layer]) layerIds[a.layer] = next++; }));
     const lrefs = Object.values(layerIds).map((n) => n + ' 0 R').join(' ');
@@ -3385,9 +3460,48 @@ function createSitePlan(CFG) {
     } catch (e) { if (e && e.name === 'AbortError') throw e; return null; }
   }
 
+  // The preview before any export (csPreview): this page's sheet, drawn as it will be saved, with the shown layers, the
+  // hidden ones, the scale and the file. The drawing is held (exporting) while it is open, so the sheet saved is the one
+  // seen. True: save.
+  async function previewExport(kind, many) {
+    let cv = null, url = null;
+    setExporting(true); busy('Preparing the preview…');
+    try {
+      const fr = sheetFrame();
+      cv = await composeSheet(false, fr);
+      url = URL.createObjectURL(await toBlob(cv, 'image/jpeg', 0.9));
+      cv.width = cv.height = 0;
+      busy(null);
+      const lyr = (l) => l.label + (layerOp(l.id) < 1 ? ` (${Math.round(layerOp(l.id) * 100)}%)` : '');
+      // the layers with markup on the sheet (on any page, for every page's sheet), and those hidden that have some
+      const has = (id) => PLAN.items.some((i) => (many || i.pg === D.page) && layerOf(i) === id);
+      const shown = LAYERS.filter((l) => layerOn(l.id) && has(l.id)), hidden = LAYERS.filter((l) => !layerOn(l.id) && has(l.id));
+      const what = kind === 'pdf' ? 'PDF' : (IMG_FORMATS.find((x) => x[0] === kind) || IMG_FORMATS[0])[1];
+      const file = many ? (kind === 'pdf' ? fileBase(true) + '.pdf' : fileBase(true) + ' (a folder or .zip of images)') : fileBase() + '.' + (kind === 'pdf' ? 'pdf' : (IMG_FORMATS.find((x) => x[0] === kind) || IMG_FORMATS[0])[0]);
+      return await csPreview({
+        url, title: many ? `Save ${D.pages} sheets as ${what}?` : `Save this sheet as ${what}?`,
+        sub: `${fr.N ? scaleName(fr.N) : 'Not to scale'}, 11 x 17 in`,
+        lines: [
+          many ? `One sheet for each ${D.set ? 'image' : 'page'}, each as it was left; shown here: ${D.set ? pageName(D.page) : 'page ' + D.page} of ${D.pages}.` : '',
+          `On the sheet: ${shown.length ? shown.map(lyr).join(', ') : 'no markup (the drawing and title block only)'}.`,
+          hidden.length ? `Hidden, so not on the sheet: ${hidden.map((l) => l.label).join(', ')}.` : '',
+          `File: ${file}`,
+        ].filter(Boolean),
+        ok: many ? `Save ${D.pages} sheets` : `Save ${kind === 'pdf' ? 'PDF' : kind.toUpperCase()}`,
+      });
+    } finally {
+      if (cv) cv.width = cv.height = 0;
+      if (url) URL.revokeObjectURL(url);
+      setExporting(false); busy(null);
+    }
+  }
   async function exportSheet(kind, all) {
     if (!D.ready) { toast('Open a drawing first.', 'err'); return; }
     if (R.exporting) return;
+    let go = false;
+    try { go = await previewExport(kind, all && D.pages > 1); }
+    catch (err) { toast('Export failed: ' + ((err && err.message) || err), 'err'); return; }
+    if (!go) { toast('Nothing saved.'); return; }
     if (all && D.pages > 1) {
       setExporting(true);
       try {
@@ -3436,7 +3550,6 @@ function createSitePlan(CFG) {
     if (R.mode === 'cal') return `Calibrate: ${tap} two points a known distance apart (a dimension or grid line), then type the real distance. ${snapNote()}${COARSE ? '' : ' Hold Shift to lock the second point level or plumb.'} ${stop}`;
     const nav = zoomLocked() ? `Drag${COARSE ? '' : ' or scroll'} to pan; zoom is held at the print scale (the dashed outline).`
       : `Drag to pan; ${COARSE ? 'pinch' : 'scroll'} to zoom.`;
-    if (R.mode === 'pan' && OV) return `${nav} Tick the tabs to show, and set their opacity, on the right.`;
     if (R.mode === 'pan') return `${nav} Pick a legend item to start placing.`;
     if (R.mode === 'select') return `${TAP} an item to select it. Drag it to move; drag a white corner to reshape; drag a blue dot to add a corner; ${COARSE ? 'double-tap' : 'Shift+click'} a corner to remove it. ${COARSE ? 'Delete removes the item, Duplicate copies it' : 'Delete removes the item, Ctrl+D copies it'}. Drag a crane's yellow handle to set the reach (double-${tap} the crane to type a value).`;
     const st = STYLE[R.tool], name = itemName(R.tool);
@@ -3477,8 +3590,10 @@ function createSitePlan(CFG) {
     R.root.classList.add('cs-mode-' + m);
     dirty(); updateUi();
   }
-  function arm(id) {
+  function arm(id, layer) { // a tool in hand: a symbol of a layer (the legend row picked), or Text or Dimension (notes)
     if (!D.ready) { toast('Open a drawing first.', 'err'); return; }
+    R.lyr = layer && LAYER[layer] ? layer : homeLayer(id);
+    if (!layerOn(R.lyr)) { setLayer(R.lyr, { off: 0 }); toast(`The ${LAYER[R.lyr].label} layer was hidden; it shows again, so what you place can be seen.`); }
     R.root.classList.remove('cs-mode-pan', 'cs-mode-select', 'cs-mode-cal'); R.root.classList.add('cs-mode-draw');
     R.mode = 'draw'; R.tool = id; R.draft = null; R.sel = null; R.lastTap = null; R.snap = null; R.hover = null; R.zwin = null; dirty(); updateUi(); // a tool picked: Selected ends
     if (aims() && snapOn()) ensureSnap();
@@ -3493,7 +3608,8 @@ function createSitePlan(CFG) {
     R.root.classList.toggle('cs-zwin', !!R.zwin);
     on(R.btn.text, R.mode === 'draw' && R.tool === '_text'); on(R.btn.dim, R.mode === 'draw' && R.tool === '_dim');
     on(R.calBtn, R.mode === 'cal'); on(R.btn.snap, snapOn());
-    R.root.querySelectorAll('.cs-row').forEach((r) => r.classList.toggle('cs-active', R.mode === 'draw' && r.dataset.sym === R.tool));
+    R.root.querySelectorAll('.cs-row').forEach((r) => r.classList.toggle('cs-active', R.mode === 'draw' && r.dataset.sym === R.tool && r.dataset.layer === R.lyr));
+    renderLegend();
     R.hintEl.textContent = R.hintEl.title = hintText(); // one line on a desktop: the whole of it as its tooltip
     const sel = R.mode === 'select' && R.sel && find(R.sel);
     const cr = sel && isCrane(sel.sym) ? sel : null;
@@ -3589,15 +3705,15 @@ function createSitePlan(CFG) {
       parts.forEach((el) => { el.inert = on; });
     }
     if (!on && R.syncPending) takeStored();
-    if (!on && R.activatePending) { R.activatePending = false; if (!offPlan()) (OV ? overlayRefresh : syncShared)(); }
+    if (!on && R.activatePending) { R.activatePending = false; if (!offPlan()) syncShared(); }
   }
   function busy(msg) { if (!R.busy) return; R.busy.textContent = msg || ''; R.busy.style.display = msg ? 'block' : 'none'; }
 
   // The panel's legend rows for one section: a row per symbol to place, and after the cranes the Tail swing barricade
   // row, which is not placed by hand (it is drawn from a crane's spec), so clicking it explains instead of arming a tool
-  const legendRows = (list) => {
+  const legendRows = (list, layer) => {
     const last = list.reduce((k, i, n) => (isCrane(i.id) ? n : k), -1);
-    return list.map((i, n) => `<div class="cs-row" data-sym="${i.id}"><div class="cs-sw">${swatch(i)}</div><div class="cs-lb">${esc(i.label)}</div></div>` +
+    return list.map((i, n) => `<div class="cs-row" data-sym="${i.id}" data-layer="${layer || ''}"><div class="cs-sw">${swatch(i)}</div><div class="cs-lb">${esc(i.label)}</div></div>` +
       (n === last ? `<div class="cs-row cs-row-info" data-info="tail" title="Drawn from a crane's specification, not placed by hand"><div class="cs-sw">${swatch(TAIL_ROW)}</div><div class="cs-lb">${esc(TAIL_ROW.label)}<small>from the crane spec</small></div></div>` : '')).join('');
   };
   const swatch = (s) => `<svg viewBox="${(s.leg || s).vb}" preserveAspectRatio="xMidYMid meet">${(s.leg || s).inner}</svg>`; // `leg`: a legend row drawn differently from the placed symbol
@@ -3635,8 +3751,8 @@ function createSitePlan(CFG) {
             <span class="cs-sep"></span>
             <button id="cs-b-fit" title="Fit the whole page inside the print outline">Fit</button>
             <button id="cs-b-zwin" title="Zoom window, as in AutoCAD: drag a rectangle, or click two corners, and that area fills the print outline. Esc cancels.">Selected</button>
-            <button id="cs-b-rotl" title="Rotate the page a quarter turn left (anticlockwise), on every tab; the markup turns with it. Ctrl+Shift+Minus (Cmd+Shift+Minus on a Mac), as in Bluebeam and Acrobat.">⟲ 90°</button>
-            <button id="cs-b-rotr" title="Rotate the page a quarter turn right (clockwise), on every tab; the markup turns with it. Ctrl+Shift+Plus (Cmd+Shift+Plus on a Mac), as in Bluebeam and Acrobat.">⟳ 90°</button>
+            <button id="cs-b-rotl" title="Rotate the page a quarter turn left (anticlockwise); the markup on every layer turns with it. Ctrl+Shift+Minus (Cmd+Shift+Minus on a Mac), as in Bluebeam and Acrobat.">⟲ 90°</button>
+            <button id="cs-b-rotr" title="Rotate the page a quarter turn right (clockwise); the markup on every layer turns with it. Ctrl+Shift+Plus (Cmd+Shift+Plus on a Mac), as in Bluebeam and Acrobat.">⟳ 90°</button>
             <select id="cs-b-scope" style="display:none" title="What the two Export buttons save: every page of the drawing (a PDF with a page each, or a folder of images), or only the page showing. Each page prints the view it was left in; a page never opened prints whole.">
               <option value="all">All pages</option><option value="one">This page</option></select>
             <button id="cs-b-export" title="Save an 11 x 17 in sheet, with the legend and title block, as an image (200 dpi) in the format picked beside it. With All pages: one image per page, in a folder (or a .zip where the browser cannot write a folder).">Export image</button>
@@ -3654,7 +3770,7 @@ function createSitePlan(CFG) {
             <div class="cs-empty-t">Open a PDF or image of the site</div>
             <button class="cs-ui" data-open>Open PDF, images or .zip…</button>
             <button class="cs-ui" data-open-dir>Open a folder of images…</button>
-            <div class="cs-empty-s">${COARSE ? '' : 'You can also drop a file or a folder here, or paste an image. '}The drawing shows on every tab; markup is kept in this browser, separately for each drawing and tab.</div>
+            <div class="cs-empty-s">${COARSE ? '' : 'You can also drop a file or a folder here, or paste an image. '}Every layer's markup is kept in this browser, for each drawing; Save plan file keeps a copy.</div>
           </div>
           <div class="cs-sb"><div class="cs-sblabel">0</div><div class="cs-bar"></div></div>
           <div class="cs-cnotes"></div>
@@ -3667,7 +3783,7 @@ function createSitePlan(CFG) {
         <div class="cs-tabs">
           <button data-tab="legend">Legend</button><button data-tab="drawing">Drawing</button><button data-tab="info">Project</button>
         </div>
-        <div class="cs-legend">${SECTIONS.map((sec) => `<div class="cs-sec">${esc(sec.title)}</div>` + legendRows(sec.items)).join('')}</div>
+        <div class="cs-legend">${legendHtml()}</div>
         <div class="cs-side">
           <h3>DRAWING</h3>
           <button class="cs-btn cs-primary" data-open>Open PDF, images or .zip…</button>
@@ -3702,8 +3818,8 @@ function createSitePlan(CFG) {
           <h3>DISPLAY</h3>
           <label class="cs-rng"><span>Fade the drawing</span><input type="range" id="cs-fade" min="0" max="0.85" step="0.05" value="0"><b id="cs-fadev">0%</b></label>
           <div class="cs-line"><span>Rotate page</span>
-            <button class="cs-btn" id="cs-rotl" title="Turn this page a quarter turn to the left. The markup on it turns with it, on every tab. Also in the toolbar (⟲ 90°), or Ctrl+Shift+Minus.">⟲ Left</button>
-            <button class="cs-btn" id="cs-rotr" title="Turn this page a quarter turn to the right. The markup on it turns with it, on every tab. Also in the toolbar (⟳ 90°), or Ctrl+Shift+Plus.">⟳ Right</button></div>
+            <button class="cs-btn" id="cs-rotl" title="Turn this page a quarter turn to the left. The markup on every layer turns with it. Also in the toolbar (⟲ 90°), or Ctrl+Shift+Minus.">⟲ Left</button>
+            <button class="cs-btn" id="cs-rotr" title="Turn this page a quarter turn to the right. The markup on every layer turns with it. Also in the toolbar (⟳ 90°), or Ctrl+Shift+Plus.">⟳ Right</button></div>
           <div class="cs-note">This page is shown <b id="cs-rotv">as opened</b>. Turn it so the drawing reads the right way up; it prints the way it is shown.</div>
           ${craneNotesPanel()}
           <h3>SAVING</h3>
@@ -3725,20 +3841,20 @@ function createSitePlan(CFG) {
       <input type="file" id="cs-specfile" accept="application/json,.json" hidden>`;
     R.root = root;
     R.legend = root.querySelector('.cs-legend');
-    if (OV) { // the Overlay tab: no drawing tools; the right column lists the tabs instead of a legend
-      root.classList.add('cs-overlay');
-      let hide = false; // the left panel keeps the drawing, its scale, the sheet scale and the display settings
-      [...root.querySelector('.cs-side').children].forEach((el) => {
-        if (el.tagName === 'H3') hide = /^(SYMBOL SIZE|SAVING)$/.test(el.textContent.trim());
-        if (hide || (el.classList.contains('cs-note') && /^Calibrate:/.test(el.textContent))) el.classList.add('cs-ov-hide');
-      });
-      root.querySelector('.cs-empty-t').textContent = 'Overlay of the other tabs';
-      root.querySelector('.cs-empty-s').textContent = 'Open a PDF or image on any other tab. Every tab then shows it, and their markup shows here together, on that drawing.';
-      R.legend.addEventListener('change', (e) => { const id = e.target.dataset.ov; if (id) { OV.off[id] = !e.target.checked; dirty(); } });
-      R.legend.addEventListener('input', (e) => { if (e.target.dataset.ovOp === undefined) return; OV.opacity = +e.target.value; e.target.nextElementSibling.textContent = Math.round(OV.opacity * 100) + '%'; dirty(); });
-      R.legend.addEventListener('click', (e) => { if (e.target.closest('[data-ov-refresh]')) overlayRefresh(); });
-      overlayPanel();
-    }
+    // the layers' eyes, lists and opacities (renderLegend shows their state)
+    R.legend.addEventListener('click', (e) => {
+      const el = e.target.closest('.cs-lyr'), id = el && el.dataset.layer;
+      if (!id) return;
+      if (e.target.closest('[data-eye]')) setLayer(id, { off: layerOn(id) ? 1 : 0 });
+      else if (e.target.closest('[data-fold]')) {
+        store.open = Object.assign({}, store.open);
+        if (store.open[id]) delete store.open[id]; else store.open[id] = 1;
+        if (!Object.keys(store.open).length) store.open._ = 1; // all folded up: stays so (not the first-time default)
+        save(); renderLegend();
+      }
+    });
+    R.legend.addEventListener('input', (e) => { const r = e.target.closest('[data-op]'); if (r) setLayer(r.closest('.cs-lyr').dataset.layer, { op: +r.value }, true); });
+    R.legend.addEventListener('change', (e) => { if (e.target.closest('[data-op]')) save(); }); // saved once the slider is let go
     const q = (s) => root.querySelector(s);
     R.map = q('.cs-map'); R.page = q('.cs-page'); R.frame = q('.cs-frame'); R.fade = q('.cs-fade');
     R.layer = q('#cs-layer'); R.hintEl = q('.cs-hint'); R.toast = q('.cs-toast'); R.busy = q('.cs-busy'); R.cnotes = q('.cs-cnotes'); R.checks = q('.cs-checks'); R.spec = q('.cs-spec'); R.ready = q('.cs-ready');
@@ -3772,18 +3888,12 @@ function createSitePlan(CFG) {
           try { inp.setSelectionRange(at, at); } catch (err) { /* not a text field */ }
         }
         PLAN.info[inp.dataset.k] = en;
-        if (OV) { // on the Overlay, a field typed here stays; emptied, it follows the tabs again
-          migrateInfoOwn(); // an older Overlay plan: work out first which fields were typed before
-          PLAN.infoOwn = Object.assign({}, PLAN.infoOwn);
-          if (en.trim()) PLAN.infoOwn[inp.dataset.k] = 1; else delete PLAN.infoOwn[inp.dataset.k];
-        }
         if (inp.dataset.k === 'address') { renderCraneNotes(); renderChecks(); }
         if (inp.dataset.k === 'by') store.by = inp.value;
         if (inp.dataset.k === 'checked') store.checked = inp.value;
         save();
       };
       inp.addEventListener('input', onInfo);
-      if (OV) inp.addEventListener('change', () => { if (PLAN && !inp.value.trim() && !offPlan()) overlayRefresh(); }); // emptied: the tabs' value at once
       inp.addEventListener('compositionend', () => onInfo(null));
     });
     R.sheetSel.onchange = () => { if (!PLAN) return; PLAN.sheetScale = R.sheetSel.value === 'auto' ? 'auto' : +R.sheetSel.value; save(); dirty(); };
@@ -3798,8 +3908,8 @@ function createSitePlan(CFG) {
     B.select.onclick = () => setMode('select');
     B.rect.onclick = () => { R.shape = 'rect'; if (R.mode === 'draw') R.draft = null; dirty(); updateUi(); };
     B.poly.onclick = () => { R.shape = 'poly'; if (R.mode === 'draw') R.draft = null; dirty(); updateUi(); };
-    B.text.onclick = () => (R.mode === 'draw' && R.tool === '_text' ? setMode('pan') : arm('_text'));
-    B.dim.onclick = () => (R.mode === 'draw' && R.tool === '_dim' ? setMode('pan') : arm('_dim'));
+    B.text.onclick = () => (R.mode === 'draw' && R.tool === '_text' ? setMode('pan') : arm('_text', NOTES));
+    B.dim.onclick = () => (R.mode === 'draw' && R.tool === '_dim' ? setMode('pan') : arm('_dim', NOTES));
     if (CK) {
       B.check.style.display = '';
       B.check.onclick = () => { store.checksOpen = !store.checksOpen; save(); renderChecks(); };
@@ -3827,7 +3937,7 @@ function createSitePlan(CFG) {
       pushUndo(); if (it.sweep && it.sweep < 360) { delete it.sweep; delete it.a0; } else { it.sweep = 90; it.a0 = -135; }
       save(); dirty(); updateUi();
     };
-    B.mz.onclick = () => { const it = R.sel && find(R.sel), zone = it && ZONE_OF[it.sym]; if (zone) arm(zone); };
+    B.mz.onclick = () => { const it = R.sel && find(R.sel), zone = it && ZONE_OF[it.sym]; if (zone) arm(zone, layerOf(it)); }; // on its symbol's layer
     B.dup.onclick = () => { dupSel(); updateUi(); };
     B.del.onclick = () => { delSel(); updateUi(); };
     B.clear.onclick = () => { clearAll(); updateUi(); };
@@ -3854,15 +3964,15 @@ function createSitePlan(CFG) {
     B.trot.addEventListener('change', () => { R.tUndo = false; updateUi(); });
     B.trl.onclick = () => setTextStyle({ rot: textRotNow() + 15 });
     B.trr.onclick = () => setTextStyle({ rot: textRotNow() - 15 }); // keys typed in the boxes are left alone by onKey already
-    root.querySelectorAll('.cs-row[data-sym]').forEach((row) => { row.onclick = () => (R.mode === 'draw' && R.tool === row.dataset.sym ? setMode('pan') : arm(row.dataset.sym)); });
+    root.querySelectorAll('.cs-row[data-sym]').forEach((row) => { row.onclick = () => (R.mode === 'draw' && R.tool === row.dataset.sym && R.lyr === row.dataset.layer ? setMode('pan') : arm(row.dataset.sym, row.dataset.layer)); });
     root.querySelectorAll('.cs-row[data-info="tail"]').forEach((row) => { row.onclick = () => toast('Tail swing barricade: drawn round a self-erecting crane, mobile crane or placing boom once its Crane spec has a tail radius. Select the crane and press Crane spec.'); });
 
     R.calBtn.onclick = () => { if (!D.ready) return; if (R.mode === 'cal') setMode('pan'); else { setMode('cal'); toast(`${TAP} the first point.`); } };
     R.ratioBtn.onclick = askRatio;
     R.noScaleBtn.onclick = async () => { if (!(await csConfirm('Clear the scale for this page?'))) return; pageCfg().mpu = null; pageCfg().cleared = 1; save(); shareScale(String(D.page)); updateSide(); dirty(); }; // cleared, as against never set
-    R.pageSel.onchange = () => showPage(+R.pageSel.value, true).then(() => OV && overlayPanel());
-    R.prevBtn.onclick = () => showPage(D.page - 1, true).then(() => OV && overlayPanel());
-    R.nextBtn.onclick = () => showPage(D.page + 1, true).then(() => OV && overlayPanel());
+    R.pageSel.onchange = () => showPage(+R.pageSel.value, true).then(() => renderLegend());
+    R.prevBtn.onclick = () => showPage(D.page - 1, true).then(() => renderLegend());
+    R.nextBtn.onclick = () => showPage(D.page + 1, true).then(() => renderLegend());
     R.fadeIn.oninput = () => { if (!PLAN) return; PLAN.fade = +R.fadeIn.value; R.fadeV.textContent = Math.round(PLAN.fade * 100) + '%'; save(); dirty(); };
     const cnOn = q('#cs-cn-on');
     if (cnOn) {
@@ -3883,10 +3993,10 @@ function createSitePlan(CFG) {
     document.addEventListener('gesturestart', (e) => e.preventDefault()); // Safari: no page zoom while pinching the drawing
 
     const hasFiles = (e) => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
-    window.addEventListener('dragover', (e) => { if (hasFiles(e) && !offPlan() && !OV) { e.preventDefault(); root.classList.add('cs-drop'); } });
+    window.addEventListener('dragover', (e) => { if (hasFiles(e) && !offPlan()) { e.preventDefault(); root.classList.add('cs-drop'); } });
     window.addEventListener('dragleave', (e) => { if (!e.relatedTarget) root.classList.remove('cs-drop'); });
     window.addEventListener('drop', (e) => {
-      if (!hasFiles(e) || offPlan() || OV) return;
+      if (!hasFiles(e) || offPlan()) return;
       e.preventDefault(); root.classList.remove('cs-drop');
       const ens = [...(e.dataTransfer.items || [])].map((i) => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null)).filter(Boolean);
       const fs = [...e.dataTransfer.files];
@@ -3894,7 +4004,7 @@ function createSitePlan(CFG) {
       else if (fs.length) openFiles(fs.map((file) => ({ file, path: file.name })), '');
     });
     window.addEventListener('paste', (e) => {
-      const t = e.target; if (offPlan() || OV || (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'))) return;
+      const t = e.target; if (offPlan() || (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'))) return;
       const f = [...((e.clipboardData && e.clipboardData.files) || [])].find((x) => /^image\/|\/pdf$/.test(x.type));
       if (f) { e.preventDefault(); openFile(f); }
     });
@@ -3931,7 +4041,7 @@ function createSitePlan(CFG) {
     try { return await fn(); } finally { setExporting(false); busy(null); }
   };
   return {
-    activate: () => { if (R.zwin) { R.zwin = null; updateUi(); } return OV ? overlayRefresh() : syncShared(); }, // called each time the tab is shown
+    activate: () => { if (R.zwin) { R.zwin = null; updateUi(); } return syncShared(); }, // called once the view is set up
     open: openFile, loadPlan: loadPlanFile, compose: composeSheet,
     // the files the export buttons write, as blobs (for checking them without a download)
     image: (kind) => guarded(async () => { const cv = await composeSheet(); return (IMG_FORMATS.find((x) => x[0] === kind) || IMG_FORMATS[0])[2](cv); }),

@@ -1,21 +1,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: #fff; }
-:root { --plans-h: calc(34px + env(safe-area-inset-top)); }
-/* ---------- top tabs: one plan at a time ---------- */
-.cs-plans {
-  position: fixed; top: 0; left: 0; right: 0; height: var(--plans-h); z-index: 20; display: flex; align-items: flex-end; gap: 4px;
-  padding: env(safe-area-inset-top) calc(8px + env(safe-area-inset-right)) 0 calc(8px + env(safe-area-inset-left));
-  background: #eceef1; border-bottom: 2px solid #111; font: 13px/1 Arial, Helvetica, sans-serif;
-  overflow-x: auto; scrollbar-width: none; -webkit-user-select: none; user-select: none;
-}
-.cs-plans::-webkit-scrollbar { display: none; }
-.cs-plans button {
-  flex: none; height: 28px; padding: 0 14px; border: 1px solid #111; border-bottom: 0; border-radius: 3px 3px 0 0;
-  background: #fff; color: #111; font: inherit; white-space: nowrap; cursor: pointer;
-}
-.cs-plans button:hover { background: #eef3ff; }
-.cs-plans button[aria-selected="true"] { background: #111; color: #fff; font-weight: 700; }
-.cs-plans button:focus-visible { outline: 2px solid #1a73e8; outline-offset: -3px; }
+/* no bar above the tool: the toolbar is its top row (the plan tabs became the legend's layers, 2026-11-19) */
+:root { --plans-h: env(safe-area-inset-top); }
 .cs-root[inert] { visibility: hidden; }
 body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
 button, input, select { font: inherit; color: inherit; }
@@ -31,9 +17,10 @@ button, input, select { font: inherit; color: inherit; }
   bottom: calc(8px + env(safe-area-inset-bottom)); left: calc(8px + env(safe-area-inset-left));
   display: grid;
   /* The drawing window is --mw x --mh, set by layoutSheet (app.js) to the printed drawing area's shape on any screen. The
-     page-setup column (left) takes the spare width, the toolbar's row on top the spare height. */
+     page-setup column (left) takes the spare width, and any spare height is left below the title block: the
+     toolbar stays at the top. */
   grid-template-columns: minmax(250px, 1fr) var(--mw, minmax(0, 1fr)) 300px;
-  grid-template-rows: minmax(0, 1fr) var(--mh, minmax(0, 1fr)) 112px;
+  grid-template-rows: auto var(--mh, minmax(0, 1fr)) 112px minmax(0, 1fr);
 }
 
 /* ---------- map window: the drawing, the markup on top, the toolbar ---------- */
@@ -58,7 +45,7 @@ button, input, select { font: inherit; color: inherit; }
 /* the toolbar: a bar of its own above the sheet, the full width, so nothing covers the drawing window; it keeps its
    room (hidden, not removed) until a drawing is open, so the sheet does not move when one opens */
 .cs-tb {
-  grid-column: 1 / 4; grid-row: 1; align-self: end; min-width: 0; margin-bottom: 6px; visibility: hidden;
+  grid-column: 1 / 4; grid-row: 1; align-self: start; min-width: 0; margin-bottom: 6px; visibility: hidden;
   background: #fff; border: 1px solid #111; padding: 4px; cursor: default;
 }
 .cs-has-doc .cs-tb { visibility: visible; }
@@ -122,6 +109,32 @@ button, input, select { font: inherit; color: inherit; }
   grid-column: 3; grid-row: 2; margin-left: -2px; border: 2px solid #111; background: #fff;
   overflow-y: auto; overflow-x: hidden; position: relative; -webkit-overflow-scrolling: touch;
 }
+/* each layer: a heading (eye, name and count, opacity) and, dropped down, its symbols; the layer being worked on in blue */
+.cs-lyr { border-bottom: 1.5px solid #111; }
+.cs-lyr-head { display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 5px; background: #f2f3f5; position: sticky; top: 0; z-index: 1; }
+.cs-lyr-act .cs-lyr-head { background: #e3edff; box-shadow: inset 4px 0 0 #1a73e8; }
+.cs-lyr-eye { flex: none; width: 28px; height: 24px; padding: 2px 4px; border: 1px solid #888; border-radius: 3px; background: #fff; color: #111; cursor: pointer; }
+.cs-lyr-eye svg { width: 100%; height: 100%; display: block; }
+.cs-lyr-eye:hover { background: #eef3ff; }
+.cs-lyr-off .cs-lyr-eye { color: #777; background: #f6f6f6; }
+.cs-lyr-name {
+  flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: 11px minmax(0, 1fr); column-gap: 3px; align-items: center;
+  border: 0; background: none; padding: 2px; text-align: left; cursor: pointer; color: #111;
+}
+.cs-lyr-name b { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-lyr-name small { grid-column: 2; font-size: 10.5px; color: #555; white-space: nowrap; }
+.cs-lyr-name small:empty { display: none; }
+.cs-lyr-car { grid-row: 1 / 3; width: 0; height: 0; border-left: 6px solid #111; border-top: 4.5px solid transparent; border-bottom: 4.5px solid transparent; transition: transform .12s; }
+.cs-lyr-open .cs-lyr-car { transform: rotate(90deg); }
+.cs-lyr-off .cs-lyr-name b { color: #777; }
+.cs-lyr-op { flex: none; display: flex; align-items: center; gap: 2px; font-size: 10.5px; color: #444; cursor: default; }
+.cs-lyr-op input { width: 62px; margin: 0; }
+.cs-lyr-op span { width: 30px; text-align: right; }
+.cs-lyr-body { display: none; }
+.cs-lyr-open .cs-lyr-body { display: block; }
+.cs-lyr-off .cs-lyr-body { opacity: .5; }
+.cs-lyr-note { padding: 6px 8px 8px; font-size: 11px; color: #555; }
+.cs-lyr-body .cs-sec { padding-top: 6px; font-size: 11px; color: #333; border-bottom-width: 1px; }
 .cs-sec { padding: 8px 8px 4px; font-weight: 700; font-size: 12px; letter-spacing: .02em; border-bottom: 1.5px solid #111; background: #fff; }
 .cs-row { display: flex; align-items: center; height: 34px; border-bottom: 1px solid #ccc; cursor: pointer; }
 .cs-row:hover { background: #f2f6ff; }
@@ -135,7 +148,7 @@ button, input, select { font: inherit; color: inherit; }
 
 /* ---------- left column: the drawing ---------- */
 .cs-side {
-  grid-column: 1; grid-row: 2 / 4; margin-right: -2px; border: 2px solid #111; background: #fff;
+  grid-column: 1; grid-row: 2 / 5; margin-right: -2px; border: 2px solid #111; background: #fff;
   padding: 6px 8px 10px; overflow-y: auto; position: relative; -webkit-overflow-scrolling: touch;
 }
 .cs-side h3, .cs-info h3 { margin: 12px 0 5px; font-size: 13px; font-weight: 400; letter-spacing: .01em; }
@@ -181,21 +194,6 @@ button, input, select { font: inherit; color: inherit; }
 .cs-auto.cs-scaleval { font: 700 14px Arial, Helvetica, sans-serif; color: #111; white-space: nowrap; text-overflow: ellipsis; }
 .cs-side select { width: 100%; }
 
-/* ---------- the Overlay tab: a viewer, so the drawing tools and the per-drawing settings are hidden ---------- */
-.cs-overlay #cs-b-poly, .cs-overlay #cs-b-rect, .cs-overlay #cs-b-finish,
-.cs-overlay #cs-b-pie, .cs-overlay #cs-b-mz,
-.cs-root:not(.cs-overlay) #cs-b-text, .cs-root:not(.cs-overlay) #cs-b-dim, .cs-overlay [data-open], .cs-overlay [data-open-dir], .cs-overlay #cs-cal, .cs-overlay #cs-ratio, .cs-overlay #cs-noscale,
-.cs-overlay #cs-saveplan, .cs-overlay #cs-loadplan, .cs-overlay .cs-ov-hide { display: none !important; }
-.cs-ov-note { padding: 8px; font-size: 11.5px; color: #444; }
-.cs-ov-row { display: flex; align-items: flex-start; gap: 8px; padding: 7px 8px; border-top: 1px solid #ccc; cursor: pointer; }
-.cs-ov-row:hover { background: #f2f6ff; }
-.cs-ov-row input { margin: 2px 0 0; }
-.cs-ov-row b { display: block; font-size: 12.5px; }
-.cs-ov-row small { display: block; font-size: 11px; color: #555; overflow-wrap: anywhere; }
-.cs-ov-out { cursor: default; color: #777; }
-.cs-ov-out:hover { background: none; }
-.cs-ov-op { padding: 8px; margin: 0; border-top: 1px solid #ccc; }
-.cs-ov-btn { padding: 0 8px 8px; }
 
 /* ---------- the tool's own question dialog (in place of the browser's prompt and confirm) ---------- */
 .cs-dlg-back { position: fixed; inset: 0; z-index: 100; background: rgba(0, 0, 0, .35); display: flex; align-items: center; justify-content: center; padding: 16px; font: 13px/1.4 Arial, Helvetica, sans-serif; color: #111; }
@@ -204,6 +202,14 @@ button, input, select { font: inherit; color: inherit; }
 .cs-dlg-in { width: 100%; font: 16px Arial, Helvetica, sans-serif; padding: 6px 8px; border: 1px solid #111; border-radius: 2px; margin-bottom: 12px; }
 .cs-dlg-btns { display: flex; justify-content: flex-end; gap: 6px; }
 .cs-dlg-btns .cs-btn { padding: 6px 14px; font-size: 13px; }
+/* the export's preview: the sheet as it will be saved, what is on it, and Save or Cancel */
+.cs-dlg.cs-pv { width: min(1100px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; gap: 6px; }
+.cs-pv-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.cs-pv-head b { font-size: 15px; }
+.cs-pv-head span { color: #555; }
+.cs-pv-img { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; background: #e6e8eb; border: 1px solid #bbb; padding: 8px; }
+.cs-pv-img img { display: block; max-width: 100%; max-height: calc(100vh - 250px); object-fit: contain; background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, .3); }
+.cs-pv-line { font-size: 12px; color: #333; overflow-wrap: anywhere; }
 
 .cs-tabs { display: none; }
 
