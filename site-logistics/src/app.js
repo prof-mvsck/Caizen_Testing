@@ -591,7 +591,15 @@ function createSitePlan(CFG) {
     if (!W || !H) return;
     const side = window.matchMedia && matchMedia('(max-height: 520px) and (min-width: 560px)').matches; // phone on its side
     const upright = !side && window.matchMedia && matchMedia('(max-width: 820px)').matches;
-    const th = tb.offsetHeight + 6; // the toolbar and the gap under it
+    // The toolbar keeps the height it has with every button that comes and goes showing (Finish, the crane's, the
+    // text style, All pages...): those wrapped it onto another row and back, which resized the drawing window and
+    // moved the drawing under the cursor just as a tool was picked (found by a test, 2026-11-19).
+    tb.style.minHeight = '';
+    tb.classList.add('cs-tb-measure');
+    const full = tb.offsetHeight;
+    tb.classList.remove('cs-tb-measure');
+    if (tb.style.minHeight !== full + 'px') tb.style.minHeight = full + 'px';
+    const th = full + 6; // the toolbar and the gap under it
     let ch;
     if (upright) { // the full width; the panel below keeps at least 160 px
       const tabs = (R.root.querySelector('.cs-tabs') || {}).offsetHeight || 0;
@@ -911,10 +919,14 @@ function createSitePlan(CFG) {
     const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
     return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
   }
-  function drawText(it, P, sel) {
+  function drawText(it, P, sel, hit) { // hit: on screen, a clear box over the whole label takes the click
     if (!P || isNaN(P[0])) return '';
     const size = labelSize(it), text = String(it.text || ''), rot = labelRot(it), w = textW(text, size, LABEL_FAMILY);
+    // Only the letters took a click before, so a small label was picked only on a stroke and missed between its
+    // letters (found by a test, 2026-11-19): the box is the label's, at least as big as a small symbol's target.
+    const hw = Math.max(w / 2 + 4, HIT / 2), hh = Math.max(size * 0.8, HIT * 0.45);
     return `<g class="cs-pt" data-id="${it.id}" transform="translate(${fmt(P[0])} ${fmt(P[1])})${rot ? ` rotate(${-rot})` : ''}">` +
+      (hit ? `<rect class="cs-hit" x="${fmt(-hw)}" y="${fmt(-hh)}" width="${fmt(hw * 2)}" height="${fmt(hh * 2)}" fill="transparent"/>` : '') +
       `<text text-anchor="middle" dominant-baseline="central" font-family="${LABEL_FAMILY}" font-weight="700" font-size="${fmt(size)}" fill="${labelColor(it)}" stroke="#fff" stroke-width="${fmt(size * 0.3)}" paint-order="stroke" stroke-linejoin="round">${esc(text)}</text>` +
       (sel ? `<rect class="cs-selring" x="${fmt(-w / 2 - 5)}" y="${fmt(-size * 0.8)}" width="${fmt(w + 10)}" height="${fmt(size * 1.6)}" fill="none" stroke="#1a73e8" stroke-width="2" stroke-dasharray="5 4"/>` : '') + '</g>';
   }
@@ -922,7 +934,7 @@ function createSitePlan(CFG) {
     const st = STYLE[it.sym];
     const P = it.pts.map((p) => toScreen(p[0], p[1]));
     const sel = !exp && it.id === R.sel;
-    if (it.sym === '_text') return drawText(it, P[0], sel);
+    if (it.sym === '_text') return drawText(it, P[0], sel, !exp);
     if (!st) return drawPoint(it, P[0], sel, exp);
     return st.kind === 'line' ? drawLine(it.id, st, P, sel, false, exp, st.dim ? (it.off || 0) * CV.z : 0) : drawArea(it.id, st, P, sel, false, exp);
   }

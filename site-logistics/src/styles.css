@@ -49,6 +49,8 @@ button, input, select { font: inherit; color: inherit; }
   background: #fff; border: 1px solid #111; padding: 4px; cursor: default;
 }
 .cs-has-doc .cs-tb { visibility: visible; }
+/* measuring the toolbar at its fullest (layoutSheet): every button that comes and goes, shown for that moment only */
+.cs-tb.cs-tb-measure .cs-btns > [style*="none"] { display: inline-flex !important; }
 .cs-tb .cs-btns { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .cs-tb button {
   font: 12px Arial, Helvetica, sans-serif; padding: 3px 8px; border: 1px solid #111; background: #fff;
