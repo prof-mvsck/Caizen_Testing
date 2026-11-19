@@ -71327,7 +71327,9 @@ function createSitePlan(CFG) {
   const SNAP_NAMES = { end: 'End', int: 'Crossing', mid: 'Middle', on: 'On line', pt: 'Point', align: 'Lined up', free: '' };
   const isDimTool = () => R.mode === 'draw' && !!(STYLE[R.tool] && STYLE[R.tool].dim);
   const isTextTool = () => R.mode === 'draw' && R.tool === '_text';
-  const aims = () => isDimTool() || isTextTool() || R.mode === 'cal'; // the tools whose clicks are aimed (snap, lock)
+  // the tools whose clicks are aimed (snap, Shift lock): Calibrate and every drawing tool, symbols, lines and areas
+  // included (user, 2026-11-19: "add snapping for areas, lines, and symbols"; before, only Text, Dimension and Calibrate)
+  const aims = () => R.mode === 'cal' || (R.mode === 'draw' && !!R.tool);
   const snapOn = () => !csSnap.off;
   function ensureSnap() {
     if (D.kind !== 'pdf' || !D.pageObj || D.snapGen === D.pageGen) return;
@@ -71497,11 +71499,17 @@ function createSitePlan(CFG) {
   // Where a click at m lands for the tool in hand: { p, s } with s the marker to show (or null).
   function aim(m) {
     const d = R.draft, n = d ? d.pts.length : 0;
-    let s = null;
+    let s = null, from = null; // from: the point a Shift lock runs from
     if (isTextTool()) s = snapText(m);
-    else if ((isDimTool() && n < 2) || (R.mode === 'cal' && n < 2)) s = snapPoint(m);
-    else return { p: m, s: null };
-    if (R.shift && n === 1 && !isTextTool()) s = withLock(d.pts[0], s, m);
+    else if (isDimTool() || R.mode === 'cal') { // its two ends (a dimension's third click, where its line sits, is free)
+      if (n >= 2) return { p: m, s: null };
+      s = snapPoint(m); if (n === 1) from = d.pts[0];
+    } else if (R.mode === 'draw' && R.tool) { // a symbol, a line's points, an area's corners
+      s = snapPoint(m);
+      const st = STYLE[R.tool];
+      if (st && n && !(st.kind === 'area' && R.shape === 'rect')) from = d.pts[n - 1]; // Shift: the next edge level, plumb or 45 degrees
+    } else return { p: m, s: null };
+    if (R.shift && from) s = withLock(from, s, m);
     return { p: s ? s.p : m, s };
   }
   function drawSnap() { // the marker on the point the next click will take: a shape per kind, and its name
@@ -72139,7 +72147,7 @@ function createSitePlan(CFG) {
   }
 
   function onMapClick(px, py) {
-    const raw = toMap(px, py), m = aims() ? aim(raw).p : raw; // Calibrate, Text and Dimension clicks are aimed (snap, Shift lock)
+    const raw = toMap(px, py), m = aims() ? aim(raw).p : raw; // Calibrate's and every drawing tool's clicks are aimed (snap, Shift lock)
     if (aims()) R.snap = null;
     if (R.mode === 'cal') { calClick(m); return; }
     if (R.mode === 'select') { R.sel = null; dirty(); updateUi(); return; }
@@ -72775,11 +72783,17 @@ function createSitePlan(CFG) {
         if (!it) { R.drag = null; R.map.classList.remove('cs-grabbing'); return; } // deleted or undone mid-drag
         it.pts = d.orig.map((q) => [q[0] + dx / V.z, q[1] + dy / V.z]);
         if (it.sym === '_text') { R.snap = snapText(it.pts[0], it.id); if (R.snap) it.pts[0] = R.snap.p.slice(); } // a dragged label snaps like a new one
+        else { // a symbol snaps by its point; an area or a line by its point nearest where it was taken hold of, the rest moving with it
+          if (d.anchor == null) { const g = toMap(d.x, d.y); d.anchor = d.orig.reduce((b, q, k) => (Math.hypot(q[0] - g[0], q[1] - g[1]) < Math.hypot(d.orig[b][0] - g[0], d.orig[b][1] - g[1]) ? k : b), 0); }
+          const sn = snapPoint(it.pts[d.anchor], it.id);
+          R.snap = sn;
+          if (sn) { const ox = sn.p[0] - it.pts[d.anchor][0], oy = sn.p[1] - it.pts[d.anchor][1]; it.pts = it.pts.map((q) => [q[0] + ox, q[1] + oy]); }
+        }
       }
       else { V.cx = d.cx - dx / V.z; V.cy = d.cy - dy / V.z; }
       dirty();
     } else if (!d && aims() && e.pointerType !== 'touch' && R.map.contains(e.target)) {
-      // Dimension, Text and Calibrate: the marker shows where the click will land
+      // Calibrate and the drawing tools: the marker shows where the click will land
       R.shift = e.shiftKey; R.hover = e.target.closest('.cs-ui') ? null : local(e);
       reaim(toMap(...local(e)));
     } else if (!d && R.draft && (R.mode === 'draw' || R.mode === 'cal') && e.pointerType !== 'touch' && R.map.contains(e.target)) {
@@ -72823,7 +72837,7 @@ function createSitePlan(CFG) {
     if (R.snap && d.item) { R.snap = null; dirty(); }
     if (d.up) { d.up(e); return; }
     if (e.type === 'pointercancel') { if (d.moved && d.item) save(); return; }
-    if (d.moved) { if (d.item) save(); return; }
+    if (d.moved) { if (d.item) { save(); R.snap = null; dirty(); } return; } // the snap marker of a moved item goes
     if (d.pan) return;
     const [x, y] = local(e), now = performance.now(), lt = R.lastTap;
     const dbl = !!lt && now - lt.t < 400 && Math.hypot(x - lt.x, y - lt.y) < (d.touch ? 24 : 8);
@@ -72844,7 +72858,7 @@ function createSitePlan(CFG) {
   }
   function startPinch() {
     const d = R.drag;
-    if (d && d.item && d.moved) save(); // the item stays wherever it got to
+    if (d && d.item && d.moved) { save(); R.snap = null; dirty(); } // the item stays wherever it got to
     R.drag = null; R.map.classList.remove('cs-grabbing');
     if (d && d.up) d.up({ pinch: true }); // a handle being dragged ends where it got to (saved, snap marker cleared)
     if (R.snap) { R.snap = null; dirty(); }
@@ -72927,9 +72941,10 @@ function createSitePlan(CFG) {
     const isNew = vh.classList.contains('cs-vm');
     let moved = false;
     return {
-      move(ev) {
+      move(ev) { // the corner or point snaps as it is dragged, as when it was drawn
         if (!moved) { moved = true; if (!isNew) pushUndo(); }
-        it.pts[i] = toMap(...local(ev)); dirty();
+        const m = toMap(...local(ev)), sn = snapPoint(m, it.id);
+        R.snap = sn; it.pts[i] = sn ? sn.p.slice() : m; dirty();
       },
       up(ev) {
         if (ev && (ev.pinch || ev.type === 'pointercancel')) { R.lastVTap = null; if (moved) save(); return; } // not a tap
@@ -72938,7 +72953,7 @@ function createSitePlan(CFG) {
           if (lv && lv.id === it.id && lv.i === i && now - lv.t < 400) { R.lastVTap = null; removeVertex(it, st, i); return; }
           R.lastVTap = { id: it.id, i, t: now };
         }
-        save();
+        R.snap = null; save(); dirty();
       },
     };
   }
@@ -73914,14 +73929,14 @@ function createSitePlan(CFG) {
     const st = STYLE[R.tool], name = itemName(R.tool);
     let how;
     if (R.tool === '_text') how = `${TAP} where the label goes, then type it. Its colour, angle and height are set in the toolbar (select a label to change its own). ${snapNote(true)}`;
-    else if (!st) how = `${TAP} the drawing to place it.`;
+    else if (!st) how = `${TAP} the drawing to place it. ${snapNote()}`;
     else if (st.dim) {
       const n = R.draft ? R.draft.pts.length : 0;
       how = n === 2 ? `Now ${tap} where the dimension line should sit (on the measured line keeps it there).`
         : `${TAP} one end, then the other, then where the dimension line should sit. ${snapNote()}${COARSE ? '' : ' Hold Shift for a level, plumb or 45° dimension.'}`;
     }
-    else if (st.kind === 'line') how = `${TAP} points along the route; double-${tap} or ${COARSE ? 'Finish' : 'Enter'} to finish${COARSE ? '' : ', Backspace removes a point'}.`;
-    else how = R.shape === 'rect' ? `${TAP} two opposite corners.` : `${TAP} each corner; double-${tap} or ${COARSE ? 'Finish' : 'Enter'} to close.`;
+    else if (st.kind === 'line') how = `${TAP} points along the route; double-${tap} or ${COARSE ? 'Finish' : 'Enter'} to finish${COARSE ? '' : ', Backspace removes a point'}. ${snapNote()}${COARSE ? '' : ' Hold Shift for a level, plumb or 45° segment.'}`;
+    else how = R.shape === 'rect' ? `${TAP} two opposite corners. ${snapNote()}` : `${TAP} each corner; double-${tap} or ${COARSE ? 'Finish' : 'Enter'} to close. ${snapNote()}${COARSE ? '' : ' Hold Shift for a level, plumb or 45° edge.'}`;
     return `${name}: ${how} ${stop}`;
   }
   function snapNote(text) { // what the cursor will snap to, for the hint line
@@ -74092,7 +74107,7 @@ function createSitePlan(CFG) {
             <button id="cs-b-text" title="Place a text label: click where it goes, then type it. Double-click a label in Select mode to change it (T).">Text</button>
             <button id="cs-b-dim" title="Dimension: click the two ends, then where the dimension line should sit; the real length is written along it. Hold Shift for a level, plumb or 45° dimension (D).">Dimension</button>
             <button id="cs-b-check" style="display:none" title="Crane setup checklist: open or close the side bar of checks for every site and for the city in the site address (L)">Checklist</button>
-            <button id="cs-b-snap" title="Snap: Calibrate, Text and Dimension clicks jump to the drawing's line ends, crossings and middles. Click to turn it off or on (S).">Snap</button>
+            <button id="cs-b-snap" title="Snap: clicks jump to the drawing's line ends, crossings and middles, and to the points of the markup on shown layers: placing symbols, drawing lines and areas (and reshaping or moving them), Text, Dimension and Calibrate. Click to turn it off or on (S).">Snap</button>
             <button id="cs-b-finish" class="cs-go" style="display:none" title="Finish the line or area (Enter)">Finish</button>
             <span class="cs-sep"></span>
             <button id="cs-b-undo" title="Undo (Ctrl+Z)">Undo</button>

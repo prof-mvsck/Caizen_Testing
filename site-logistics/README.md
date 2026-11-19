@@ -67,7 +67,11 @@ Ctrl is Cmd on a Mac.
    every layer's markup turns with it (2026-11-19: toolbar buttons and keys added).
 2. **Drawing scale** (left panel): *Calibrate...* on two points a known distance apart, or *Enter 1:N...* for a PDF
    drawn to scale at full size. The sheet scale, scale bar and crane reach in metres need it.
-3. Pick a legend row on the right and draw: lines by clicking points, areas as Polygon or Rect, symbols by a click.
+3. **Snap** (on to start; S or the Snap button turns it off): symbols, line points, area corners, text labels,
+   dimension ends and Calibrate's points jump to the drawing's line ends, crossings and middles and to the points of
+   the markup on shown layers (a locked layer's too); so do corners dragged to reshape and items moved. Shift keeps
+   the next line or polygon edge level, plumb or at 45° (2026-11-19: areas, lines and symbols snap too).
+   Pick a legend row on the right and draw: lines by clicking points, areas as Polygon or Rect, symbols by a click.
    Double-click or Enter finishes a line or polygon. Select mode moves, reshapes, duplicates (Ctrl+D) and deletes items.
    Cranes: drag the yellow handle for the reach, double-click to type it, *Crane: make pie* for a swing sector.
    **Symbol size** (left panel, one setting per plan): *Small* or *Large*. Symbols print at a fixed size on the
