@@ -30,6 +30,9 @@ editable text markup in Bluebeam).
 
 ## Workflow
 1. **Open PDF or image...** (or drop a file on the window, or paste an image).
+   **Rotate page** a quarter turn with **⟲ 90°** / **⟳ 90°** in the toolbar, *Rotate page* in the Drawing panel, or
+   **Ctrl+Shift+Minus** / **Ctrl+Shift+Plus** (Cmd on a Mac; the keys Bluebeam and Acrobat use). The turn is shared by
+   every tab and the markup turns with it (2026-11-19: toolbar buttons and keys added).
 2. **Drawing scale** (left panel): *Calibrate...* on two points a known distance apart, or *Enter 1:N...* for a PDF
    drawn to scale at full size. The sheet scale, scale bar and crane reach in metres need it.
 3. Pick a legend row on the right and draw: lines by clicking points, areas as Polygon or Rect, symbols by a click.

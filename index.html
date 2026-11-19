@@ -70612,8 +70612,9 @@ function createSitePlan(CFG) {
     D.img = el; D.w = D.rot % 2 ? D.h0 : D.w0; D.h = D.rot % 2 ? D.w0 : D.h0;
     if (show) R.page.insertBefore(el, R.fade);
   }
-  function rotatePage(dir) { // a quarter turn left (-1) or right (1), for every tab
+  function rotatePage(dir) { // a quarter turn left (-1) or right (1), for every tab: the toolbar, the Drawing panel or the keys
     if (!D.ready || R.exporting || R.batch) return;
+    R.zwin = null; // a zoom window's corners were picked on the page as it faced before
     const m = csShared.rots[D.key] || (csShared.rots[D.key] = {}), k = String(D.page), r = (sharedRot(D.page) + dir + 4) % 4;
     if (r) m[k] = r; else delete m[k];
     const keys = Object.keys(csShared.rots); if (keys.length > 40) delete csShared.rots[keys.find((x) => x !== D.key)];
@@ -72699,6 +72700,7 @@ function createSitePlan(CFG) {
   }
   // The top tabs show one plan at a time; an instance sits idle while another tab is showing.
   function offPlan() { return document.body.dataset.plan !== CFG.id; }
+  const ROT_KEYS = { Minus: -1, NumpadSubtract: -1, Equal: 1, NumpadAdd: 1 }; // with Ctrl (Cmd) + Shift: a quarter turn
   function onKey(e) {
     if (R.exporting) return; // nothing changes while an export runs
     const t = e.target;
@@ -72714,6 +72716,10 @@ function createSitePlan(CFG) {
     } else if (e.key === 'Enter' && R.draft && R.mode === 'draw') { finishDraft(); updateUi(); e.preventDefault(); }
     else if (e.key === 'Backspace' && R.draft && R.mode === 'draw') { R.draft.pts.pop(); if (!R.draft.pts.length) R.draft = null; dirty(); updateUi(); e.preventDefault(); }
     else if ((e.key === 'Delete' || e.key === 'Backspace') && R.sel) { delSel(); updateUi(); e.preventDefault(); }
+    // Rotate the page, with Bluebeam's and Acrobat's keys: Ctrl+Shift+Minus left, Ctrl+Shift+Plus right (Cmd on a Mac).
+    // By physical key (e.code), so Shift turning = into + or - into _ does not matter; the number pad's - and + work too.
+    // preventDefault keeps the browser from zooming the whole page on the same keys.
+    else if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && ROT_KEYS[e.code]) { rotatePage(ROT_KEYS[e.code]); e.preventDefault(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { dupSel(); updateUi(); e.preventDefault(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { undo(); updateUi(); e.preventDefault(); }
   }
@@ -73645,7 +73651,7 @@ function createSitePlan(CFG) {
     R.calBtn.disabled = !has;
     R.ratioBtn.style.display = !has || D.kind === 'pdf' ? '' : 'none'; R.ratioBtn.disabled = !has;
     R.noScaleBtn.style.display = has && mpu() ? '' : 'none';
-    R.fadeIn.disabled = R.rotL.disabled = R.rotR.disabled = R.savePlanBtn.disabled = R.loadPlanBtn.disabled = !has;
+    R.fadeIn.disabled = R.rotL.disabled = R.rotR.disabled = R.btn.rotl.disabled = R.btn.rotr.disabled = R.savePlanBtn.disabled = R.loadPlanBtn.disabled = !has;
     R.rotV.textContent = !has || !D.rot ? 'as opened' : D.rot === 2 ? 'upside down' : D.rot === 1 ? 'a quarter turn right' : 'a quarter turn left';
     // The sheet scale is the scale the export prints at. It means nothing until the drawing itself has a scale (Drawing
     // Scale, above), so until then it is switched off and its note says what to do, rather than looking set.
@@ -73756,6 +73762,8 @@ function createSitePlan(CFG) {
               <span class="cs-sep"></span>
               <button id="cs-b-fit" title="Fit the whole page inside the print outline">Fit</button>
               <button id="cs-b-zwin" title="Zoom window, as in AutoCAD: drag a rectangle, or click two corners, and that area fills the print outline. Esc cancels.">Selected</button>
+              <button id="cs-b-rotl" title="Rotate the page a quarter turn left (anticlockwise), on every tab; the markup turns with it. Ctrl+Shift+Minus (Cmd+Shift+Minus on a Mac), as in Bluebeam and Acrobat.">⟲ 90°</button>
+              <button id="cs-b-rotr" title="Rotate the page a quarter turn right (clockwise), on every tab; the markup turns with it. Ctrl+Shift+Plus (Cmd+Shift+Plus on a Mac), as in Bluebeam and Acrobat.">⟳ 90°</button>
               <select id="cs-b-scope" style="display:none" title="What the two Export buttons save: every page of the drawing (a PDF with a page each, or a folder of images), or only the page showing. Each page prints the view it was left in; a page never opened prints whole.">
                 <option value="all">All pages</option><option value="one">This page</option></select>
               <button id="cs-b-export" title="Save an 11 x 17 in sheet, with the legend and title block, as an image (200 dpi) in the format picked beside it. With All pages: one image per page, in a folder (or a .zip where the browser cannot write a folder).">Export image</button>
@@ -73811,8 +73819,8 @@ function createSitePlan(CFG) {
           <h3>DISPLAY</h3>
           <label class="cs-rng"><span>Fade the drawing</span><input type="range" id="cs-fade" min="0" max="0.85" step="0.05" value="0"><b id="cs-fadev">0%</b></label>
           <div class="cs-line"><span>Rotate page</span>
-            <button class="cs-btn" id="cs-rotl" title="Turn this page a quarter turn to the left. The markup on it turns with it, on every tab.">⟲ Left</button>
-            <button class="cs-btn" id="cs-rotr" title="Turn this page a quarter turn to the right. The markup on it turns with it, on every tab.">⟳ Right</button></div>
+            <button class="cs-btn" id="cs-rotl" title="Turn this page a quarter turn to the left. The markup on it turns with it, on every tab. Also in the toolbar (⟲ 90°), or Ctrl+Shift+Minus.">⟲ Left</button>
+            <button class="cs-btn" id="cs-rotr" title="Turn this page a quarter turn to the right. The markup on it turns with it, on every tab. Also in the toolbar (⟳ 90°), or Ctrl+Shift+Plus.">⟳ Right</button></div>
           <div class="cs-note">This page is shown <b id="cs-rotv">as opened</b>. Turn it so the drawing reads the right way up; it prints the way it is shown.</div>
           ${craneNotesPanel()}
           <h3>SAVING</h3>
@@ -73859,7 +73867,7 @@ function createSitePlan(CFG) {
     R.symSel = q('#cs-symsize'); R.symNote = q('#cs-symnote');
     R.savePlanBtn = q('#cs-saveplan'); R.loadPlanBtn = q('#cs-loadplan');
     R.btn = {};
-    ['pan', 'select', 'poly', 'rect', 'text', 'dim', 'check', 'snap', 'finish', 'undo', 'dup', 'pie', 'spec', 'mz', 'tstyle', 'tcol', 'trot', 'trl', 'trr', 'tsize','del', 'clear', 'fit', 'zwin', 'scope', 'export', 'fmt', 'pdf', 'print', 'pkind'].forEach((k) => (R.btn[k] = q('#cs-b-' + k)));
+    ['pan', 'select', 'poly', 'rect', 'text', 'dim', 'check', 'snap', 'finish', 'undo', 'dup', 'pie', 'spec', 'mz', 'tstyle', 'tcol', 'trot', 'trl', 'trr', 'tsize','del', 'clear', 'fit', 'zwin', 'rotl', 'rotr', 'scope', 'export', 'fmt', 'pdf', 'print', 'pkind'].forEach((k) => (R.btn[k] = q('#cs-b-' + k)));
 
     root.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => R.fileIn.click()));
     R.fileIn.onchange = () => { const fs = [...(R.fileIn.files || [])]; R.fileIn.value = ''; if (fs.length) openFiles(fs.map((file) => ({ file, path: file.name })), ''); };
@@ -73978,8 +73986,8 @@ function createSitePlan(CFG) {
       cnOn.checked = !csNotes.off;
       cnOn.onchange = () => { csNotes.off = !cnOn.checked; try { localStorage.setItem('siteLogistics.craneNotesOff', csNotes.off ? '1' : ''); } catch (e) {} craneNotesAt(null); };
     }
-    R.rotL.onclick = () => rotatePage(-1);
-    R.rotR.onclick = () => rotatePage(1);
+    R.rotL.onclick = R.btn.rotl.onclick = () => rotatePage(-1);
+    R.rotR.onclick = R.btn.rotr.onclick = () => rotatePage(1);
 
     R.map.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove, true);
