@@ -36,7 +36,10 @@ button, input, select { font: inherit; color: inherit; }
 .cs-has-doc .cs-frame, .cs-has-doc .cs-page { display: block; }
 .cs-page > img, .cs-page > canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; -webkit-user-drag: none; }
 .cs-page > .cs-detail { position: absolute; display: block; }
-.cs-fade { position: absolute; inset: 0; background: #fff; opacity: 0; }
+.cs-fade { position: absolute; inset: 0; background: #fff; opacity: 0; z-index: 2; } /* over the page and the pages laid over it */
+/* page overlay: the other pages' drawings over this one, multiplied (their white paper drops out, their lines darken) */
+.cs-ovls { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+.cs-ovls > .cs-ovl-pic { position: absolute; left: 0; top: 0; z-index: 1; display: block; mix-blend-mode: multiply; }
 .cs-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
 .cs-mode-select .cs-hit-a, .cs-mode-select .cs-hit-p, .cs-mode-select .cs-pt { pointer-events: all; cursor: move; }
 .cs-mode-select .cs-vh, .cs-mode-select .cs-vm, .cs-mode-select .cs-vr, .cs-mode-select .cs-va, .cs-mode-select .cs-vo { pointer-events: all; cursor: move; }
@@ -142,6 +145,13 @@ button, input, select { font: inherit; color: inherit; }
 .cs-lyr-open .cs-lyr-body { display: block; }
 .cs-lyr-off .cs-lyr-body { opacity: .5; }
 .cs-lyr-note { padding: 6px 8px 8px; font-size: 11px; color: #555; }
+/* the page overlay's rows, in the page-setup column: eye, page, opacity, remove */
+.cs-ovl-row { display: flex; align-items: center; gap: 4px; margin: 5px 0; }
+.cs-ovl-row select { flex: 1 1 auto; min-width: 0; }
+.cs-ovl-row .cs-ovl-x { flex: none; padding: 2px 8px; }
+.cs-ovl-off select, .cs-ovl-here select { color: #888; }
+.cs-ovl-hint { margin: -2px 0 6px 32px; }
+#cs-ovl-add { margin-top: 2px; }
 .cs-lyr-body .cs-sec { padding-top: 6px; font-size: 11px; color: #333; border-bottom-width: 1px; }
 .cs-sec { padding: 8px 8px 4px; font-weight: 700; font-size: 12px; letter-spacing: .02em; border-bottom: 1.5px solid #111; background: #fff; }
 .cs-row { display: flex; align-items: center; height: 34px; border-bottom: 1px solid #ccc; cursor: pointer; }

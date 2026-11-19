@@ -43,6 +43,16 @@ top row of the screen (where the tabs were), so nothing covers the drawing. On a
 below; on its side, the full height with the toolbar and panel beside it. `layoutSheet` in `app.js` sets the size;
 `styles.css` arranges the panels.
 
+## Page overlay (2026-11-19)
+For a drawing with several pages (floors, levels), **PAGE OVERLAY** in the page-setup column lays up to four other
+pages over the page showing (five with it), to see how they line up. **+ Add a page to lay over** takes the nearest
+page not yet laid over; each row has an eye, the page (any page can be picked), an opacity slider (50% to start) and
+x to take it off. A page laid over brings its drawing, multiplied over this one so its white paper drops out and its
+lines darken, and its markup on the shown layers, at its opacity, view only (it cannot be selected or changed from
+here: go to that page for that). Pages are laid by their top-left corners and turned with the page showing, so the
+sheets of one set line up. The list is kept with the plan (and in plan files). **Exports and Print are the page
+showing alone**; the preview says which pages were laid over on screen only.
+
 ## Keyboard shortcuts (2026-11-19)
 Press **?** (or the **?** button at the end of the toolbar) for this list in the tool; each toolbar button's tooltip
 names its key. A key does just what its button does, and only when the button is showing (the crane keys with a crane

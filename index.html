@@ -49,7 +49,10 @@ button, input, select { font: inherit; color: inherit; }
 .cs-has-doc .cs-frame, .cs-has-doc .cs-page { display: block; }
 .cs-page > img, .cs-page > canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; -webkit-user-drag: none; }
 .cs-page > .cs-detail { position: absolute; display: block; }
-.cs-fade { position: absolute; inset: 0; background: #fff; opacity: 0; }
+.cs-fade { position: absolute; inset: 0; background: #fff; opacity: 0; z-index: 2; } /* over the page and the pages laid over it */
+/* page overlay: the other pages' drawings over this one, multiplied (their white paper drops out, their lines darken) */
+.cs-ovls { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+.cs-ovls > .cs-ovl-pic { position: absolute; left: 0; top: 0; z-index: 1; display: block; mix-blend-mode: multiply; }
 .cs-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
 .cs-mode-select .cs-hit-a, .cs-mode-select .cs-hit-p, .cs-mode-select .cs-pt { pointer-events: all; cursor: move; }
 .cs-mode-select .cs-vh, .cs-mode-select .cs-vm, .cs-mode-select .cs-vr, .cs-mode-select .cs-va, .cs-mode-select .cs-vo { pointer-events: all; cursor: move; }
@@ -155,6 +158,13 @@ button, input, select { font: inherit; color: inherit; }
 .cs-lyr-open .cs-lyr-body { display: block; }
 .cs-lyr-off .cs-lyr-body { opacity: .5; }
 .cs-lyr-note { padding: 6px 8px 8px; font-size: 11px; color: #555; }
+/* the page overlay's rows, in the page-setup column: eye, page, opacity, remove */
+.cs-ovl-row { display: flex; align-items: center; gap: 4px; margin: 5px 0; }
+.cs-ovl-row select { flex: 1 1 auto; min-width: 0; }
+.cs-ovl-row .cs-ovl-x { flex: none; padding: 2px 8px; }
+.cs-ovl-off select, .cs-ovl-here select { color: #888; }
+.cs-ovl-hint { margin: -2px 0 6px 32px; }
+#cs-ovl-add { margin-top: 2px; }
 .cs-lyr-body .cs-sec { padding-top: 6px; font-size: 11px; color: #333; border-bottom-width: 1px; }
 .cs-sec { padding: 8px 8px 4px; font-weight: 700; font-size: 12px; letter-spacing: .02em; border-bottom: 1.5px solid #111; background: #fff; }
 .cs-row { display: flex; align-items: center; height: 34px; border-bottom: 1px solid #ccc; cursor: pointer; }
@@ -71297,7 +71307,7 @@ function createSitePlan(CFG) {
     const fr = sheetFrame();
     R.frz = fr.z;
     let out = '';
-    out += layerMarkup(false);
+    out += ovlMarkup() + layerMarkup(false); // the pages laid over first, this page's markup on top
     out += extentMarkup(fr) + drawHandles() + drawDraft() + drawSnap() + drawZoomWin();
     R.layer.innerHTML = out;
     const m = mpu();
@@ -71695,6 +71705,7 @@ function createSitePlan(CFG) {
     D.pageObj = null; D.kind = null; D.ready = false; D.pages = 1; D.page = 1; D.set = null; PLAN = null;
     D.snap = null; D.snapBusy = false; R.snap = null;
     R.sel = null; R.draft = null; R.undo = [];
+    R.ovlGen = (R.ovlGen || 0) + 1; if (D.ovl) { D.ovl.pics.forEach((x) => dropCanvas(x.cv)); D.ovl = null; } if (R.ovls) R.ovls.textContent = ''; // the page overlay goes with it
     setMode('pan'); fillInfo(); updateSide();
   }
 
@@ -71966,6 +71977,7 @@ function createSitePlan(CFG) {
     if (R.mode === 'draw' || R.mode === 'cal') setMode('pan');
     if (fit) restoreView(); // as this page was left; whole, the first time
     updateSide(); updateUi(); dirty();
+    renderOverlays(); // the other pages laid over this one (another page, or this one turned)
     if (D.kind === 'pdf') await renderBase(gen);
   }
 
@@ -73183,6 +73195,116 @@ function createSitePlan(CFG) {
     renderLegend(); updateUi(); dirty();
   }
 
+  // ---------- page overlay ----------
+  // Up to four other pages laid over the page showing, five with it, to see how floors and levels line up (user,
+  // 2026-11-19: "up to 5 pages can be overlaid with each other. Each with their own drawings/annotations ... during
+  // printing, it will only be one page"). Each has an eye and an opacity in the page-setup column, kept with the plan
+  // (PLAN.ovl: [{ pg, off, op }]). Its drawing is multiplied over this one (its white paper drops out, its lines
+  // darken), and its markup on the shown layers goes above, view only. Pages are laid by their top-left corners and
+  // turned with the page showing (their markup turned for the screen only), so the sheets of one set line up.
+  // Exports print the page showing alone.
+  const OVL_MAX = 4, OVL_OP = 0.5;
+  const ovlList = () => (PLAN && Array.isArray(PLAN.ovl) ? PLAN.ovl : []);
+  const ovlOp = (o) => (o.op > 0 && o.op <= 1 ? o.op : OVL_OP);
+  function ovlShown() { // the pages laid over now: shown, not the page showing, each once
+    if (!D.ready || D.pages < 2) return [];
+    const seen = new Set();
+    return ovlList().filter((o) => o.pg !== D.page && o.pg >= 1 && o.pg <= D.pages && !o.off && !seen.has(o.pg) && seen.add(o.pg));
+  }
+  async function ovlPicture(n, rot) { // page n's drawing turned `rot` quarter turns: a canvas, its size in drawing units, and unturned
+    if (D.kind === 'pdf') {
+      const page = await D.pdf.getPage(n);
+      const vp = (k, r) => page.getViewport({ scale: k, rotation: (page.rotate + 90 * r) % 360 });
+      const v0 = vp(1, 0), v = vp(1, rot);
+      const k = Math.min(4096 / Math.max(v.width, v.height), Math.sqrt((COARSE ? 2.5e6 : 5e6) / (v.width * v.height)), 3);
+      const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(v.width * k)); cv.height = Math.max(1, Math.round(v.height * k));
+      await page.render({ canvas: cv, viewport: vp(k, rot) }).promise;
+      return { cv, w: v.width, h: v.height, w0: v0.width, h0: v0.height };
+    }
+    if (D.set && D.set.entries[n - 1]) { // an image of a set
+      const en = D.set.entries[n - 1], im = await loadImage(await zipRead(D.set.buf, en), '', baseName(en.name), D.docGen);
+      try {
+        const img = im.img, w0 = img.naturalWidth, h0 = img.naturalHeight;
+        let cv = rot ? turned(img, rot) : null;
+        if (!cv) { cv = document.createElement('canvas'); cv.width = w0; cv.height = h0; cv.getContext('2d').drawImage(img, 0, 0); }
+        return { cv, w: rot % 2 ? h0 : w0, h: rot % 2 ? w0 : h0, w0, h0 };
+      } finally { URL.revokeObjectURL(im.url); }
+    }
+    return null;
+  }
+  async function renderOverlays() { // the overlaid pages' drawings, drawn once per page and turn, then kept while listed
+    if (!R.ovls) return;
+    const gen = R.ovlGen = (R.ovlGen || 0) + 1, doc = D.docGen, rot = D.rot;
+    if (!D.ovl || D.ovl.doc !== doc) D.ovl = { doc, pics: new Map() };
+    const want = ovlShown(), key = (pg) => pg + '|' + rot;
+    for (const o of want) {
+      if (D.ovl.pics.has(key(o.pg))) continue;
+      let pic = null;
+      try { pic = await ovlPicture(o.pg, rot); }
+      catch (e) { if (gen === R.ovlGen) toast(`Could not draw ${D.set ? pageName(o.pg) : 'page ' + o.pg} for the overlay: ${(e && e.message) || e}`, 'err'); }
+      if (gen !== R.ovlGen || doc !== D.docGen) { if (pic) dropCanvas(pic.cv); return; } // a newer call, or another drawing
+      if (pic) D.ovl.pics.set(key(o.pg), pic);
+    }
+    while (R.ovls.firstChild) R.ovls.removeChild(R.ovls.firstChild);
+    want.forEach((o) => {
+      const pic = D.ovl.pics.get(key(o.pg));
+      if (!pic) return;
+      pic.cv.className = 'cs-ovl-pic'; pic.cv.dataset.pg = o.pg;
+      Object.assign(pic.cv.style, { width: pic.w + 'px', height: pic.h + 'px', opacity: String(ovlOp(o)) });
+      R.ovls.appendChild(pic.cv);
+    });
+    const keep = new Set(ovlList().map((o) => key(o.pg))); // hidden but listed: kept, to show again at once
+    for (const [k, pic] of D.ovl.pics) if (!keep.has(k)) { dropCanvas(pic.cv); D.ovl.pics.delete(k); }
+    dirty();
+  }
+  function ovlMarkup() { // the overlaid pages' markup on the shown layers, at each page's opacity, under this page's; view only
+    let out = '';
+    for (const o of ovlShown()) {
+      const pic = D.ovl && D.ovl.pics.get(o.pg + '|' + D.rot);
+      if (!pic) continue; // drawn once its picture is ready (its size turns the markup)
+      const was = ((PLAN.rot && +PLAN.rot[o.pg]) || 0) & 3;
+      const its = PLAN.items.filter((i) => i.pg === o.pg && layerOn(layerOf(i))).map((i) => {
+        const f = i._r != null ? (+i._r & 3) : was;
+        if (f === D.rot) return i;
+        const c = JSON.parse(JSON.stringify(i)); delete c._r; // turned for the screen, not saved
+        turnItems([c], f, (D.rot - f + 4) % 4, pic.w0, pic.h0);
+        return c;
+      });
+      let s = '';
+      for (const l of LAYERS) {
+        const t = its.filter((it) => layerOf(it) === l.id).map((it) => drawItem(it, false)).join('');
+        if (t) s += layerOp(l.id) < 1 ? `<g opacity="${layerOp(l.id)}">${t}</g>` : t;
+      }
+      if (s) out += `<g class="cs-locked" opacity="${ovlOp(o)}">${s}</g>`;
+    }
+    return out;
+  }
+  function renderOvlPanel() {
+    if (!R.ovlBox) return;
+    const has = D.ready && D.pages > 1;
+    R.ovlBox.style.display = has ? '' : 'none';
+    if (!has) return;
+    const list = ovlList(), name = (n) => (D.set ? pageName(n) : 'Page ' + n);
+    const opts = (sel) => Array.from({ length: D.pages }, (_, i) => `<option value="${i + 1}"${i + 1 === sel ? ' selected' : ''}>${esc(name(i + 1))}${i + 1 === D.page ? ' (showing)' : ''}</option>`).join('');
+    R.ovlRows.innerHTML = list.map((o, i) => {
+      const on = !o.off, here = o.pg === D.page;
+      return `<div class="cs-ovl-row${on ? '' : ' cs-ovl-off'}${here ? ' cs-ovl-here' : ''}" data-i="${i}">` +
+        `<button type="button" class="cs-lyr-eye" data-ovl-eye aria-pressed="${on}" title="Show or hide this page over the one showing">${on ? EYE_ON : EYE_OFF}</button>` +
+        `<select data-ovl-pg title="The page laid over this one">${opts(o.pg)}</select>` +
+        `<label class="cs-lyr-op" title="Its opacity, drawing and markup"><input type="range" data-ovl-op min="0.1" max="1" step="0.05" value="${ovlOp(o)}" aria-label="Opacity of ${esc(name(o.pg))}"><span>${Math.round(ovlOp(o) * 100)}%</span></label>` +
+        '<button type="button" class="cs-btn cs-ovl-x" data-ovl-del title="Take this page off the overlay">×</button></div>' +
+        (here ? '<div class="cs-note cs-ovl-hint">That is the page showing, so it is not laid over itself.</div>' : '');
+    }).join('');
+    R.ovlAdd.disabled = list.length >= OVL_MAX;
+    R.ovlAdd.textContent = list.length >= OVL_MAX ? `${OVL_MAX} pages laid over (the most)` : '+ Add a page to lay over';
+  }
+  function setOvl(list) {
+    if (!PLAN) return;
+    PLAN.ovl = list.slice(0, OVL_MAX).map((o) => Object.assign({ pg: o.pg, op: ovlOp(o) }, o.off ? { off: 1 } : {}));
+    save(); renderOvlPanel(); renderOverlays(); dirty();
+  }
+  const cleanOvl = (v) => (Array.isArray(v) ? v : []).map((o) => o && Math.round(num(o.pg))).map((pg, i) => (pg >= 1 ? Object.assign({ pg, op: Math.min(1, Math.max(0.1, num(v[i].op) || OVL_OP)) }, v[i].off ? { off: 1 } : {}) : null)).filter(Boolean).slice(0, OVL_MAX);
+
   // ---------- export: a 17 x 11 in sheet with the visible drawing, the markup and a legend of what was used ----------
   function svgImage(inner, viewBox, w, h) {
     // BAD_CHARS: a last guard, so no character anywhere in the markup can stop the export. A picture cannot see this
@@ -73474,7 +73596,7 @@ function createSitePlan(CFG) {
       if (Object.keys(c).length) layers[id] = c;
     });
     Object.assign(PLAN, {
-      items: got, pages, rot, views: {}, layers, fade: Math.min(0.85, Math.max(0, num(p.fade) || 0)),
+      items: got, pages, rot, views: {}, layers, ovl: cleanOvl(p.ovl), fade: Math.min(0.85, Math.max(0, num(p.fade) || 0)),
       sheetScale: FIXED_SCALES.some((s) => s[0] === +p.sheetScale) ? +p.sheetScale : 'auto',
       symSize: SYM_SIZES.some((x) => x[0] === p.symSize) ? p.symSize : DEFAULT_SYM_SIZE,
       info: Object.keys(fresh.info).reduce((o, k) => ((o[k] = typeof (p.info || {})[k] === 'string' ? cleanText(p.info[k], 200) : fresh.info[k]), o), {}),
@@ -73483,7 +73605,7 @@ function createSitePlan(CFG) {
     });
     delete PLAN.infoOwn;
     alignHere(); syncCraneReach();
-    R.undo = []; R.sel = null; save(); shareScale(); takeSharedScale(); fillInfo(); updateSide(); updateUi(); renderChecks(); dirty(); // a page the file has no scale for takes the drawing's at once
+    R.undo = []; R.sel = null; save(); shareScale(); takeSharedScale(); fillInfo(); updateSide(); updateUi(); renderChecks(); renderOverlays(); dirty(); // a page the file has no scale for takes the drawing's at once
     toast(`Loaded ${PLAN.items.length} item${PLAN.items.length === 1 ? '' : 's'} from ${file.name}.`);
   }
 
@@ -73859,6 +73981,7 @@ function createSitePlan(CFG) {
           many ? `One sheet for each ${D.set ? 'image' : 'page'}, each as it was left; shown here: ${D.set ? pageName(D.page) : 'page ' + D.page} of ${D.pages}.` : '',
           `On the sheet: ${shown.length ? shown.map(lyr).join(', ') : 'no markup (the drawing and title block only)'}.`,
           hidden.length ? `Hidden, so not on the sheet: ${hidden.map((l) => l.label).join(', ')}.` : '',
+          ovlShown().length ? `Pages laid over (${ovlShown().map((o) => (D.set ? pageName(o.pg) : o.pg)).join(', ')}) show on screen only: ${many ? 'each sheet is its own page' : 'the sheet is this page'} alone.` : '',
           `File: ${file}`,
         ].filter(Boolean),
         ok: many ? `Save ${D.pages} sheets` : `Save ${kind === 'pdf' ? 'PDF' : kind.toUpperCase()}`,
@@ -74041,6 +74164,7 @@ function createSitePlan(CFG) {
     setSymNote(has ? sheetFrame() : null);
     const fade = has ? PLAN.fade || 0 : 0;
     R.fadeIn.value = fade; R.fadeV.textContent = Math.round(fade * 100) + '%';
+    renderOvlPanel();
   }
   // The Symbol size note: the ground height of a 36-unit symbol (0.36 in on paper at 1:S), and what it prints at on the
   // sheet scale in use (Auto's follows the view, so render() keeps it current).
@@ -74141,7 +74265,7 @@ function createSitePlan(CFG) {
         </div>
         <div class="cs-map">
           <div class="cs-frame"></div>
-          <div class="cs-page"><div class="cs-fade"></div></div>
+          <div class="cs-page"><div class="cs-ovls"></div><div class="cs-fade"></div></div>
           <svg class="cs-svg"><g id="cs-layer"></g></svg>
           <div class="cs-empty">
             <div class="cs-empty-t">Open a PDF or image of the site</div>
@@ -74172,6 +74296,12 @@ function createSitePlan(CFG) {
             <button class="cs-btn" id="cs-prev" title="Previous page">‹</button>
             <select id="cs-page"></select>
             <button class="cs-btn" id="cs-next" title="Next page">›</button>
+          </div>
+          <div id="cs-ovlbox" style="display:none">
+            <h3>PAGE OVERLAY</h3>
+            <div class="cs-note">Lay up to four other pages (floors, levels) over this one, each with its own markup, to see how they line up. On screen only: the export prints this page alone.</div>
+            <div id="cs-ovl"></div>
+            <button class="cs-btn" id="cs-ovl-add" title="Lay another page of this drawing over the page showing">+ Add a page to lay over</button>
           </div>
           <h3>DRAWING SCALE</h3>
           <div class="cs-note cs-strong" id="cs-scaleinfo"></div>
@@ -74243,6 +74373,33 @@ function createSitePlan(CFG) {
     R.notesEl = q('#cs-notes'); R.sheetSel = q('#cs-sheetscale'); R.planIn = q('#cs-planfile');
     R.symSel = q('#cs-symsize'); R.symNote = q('#cs-symnote');
     R.savePlanBtn = q('#cs-saveplan'); R.loadPlanBtn = q('#cs-loadplan');
+    R.ovls = q('.cs-ovls'); R.ovlBox = q('#cs-ovlbox'); R.ovlRows = q('#cs-ovl'); R.ovlAdd = q('#cs-ovl-add');
+    R.ovlAdd.onclick = () => { // the nearest page not showing and not laid over yet
+      const list = ovlList().slice(), used = new Set(list.map((o) => o.pg).concat(D.page));
+      if (!D.ready || list.length >= OVL_MAX) return;
+      let pg = 0;
+      for (let k = 1; k < D.pages && !pg; k++) for (const c of [D.page + k, D.page - k]) if (!pg && c >= 1 && c <= D.pages && !used.has(c)) pg = c;
+      if (!pg) { toast('Every other page is laid over already.'); return; }
+      list.push({ pg, op: OVL_OP }); setOvl(list);
+    };
+    R.ovlRows.addEventListener('click', (e) => {
+      const row = e.target.closest('.cs-ovl-row'); if (!row) return;
+      const list = ovlList().map((o) => Object.assign({}, o)), i = +row.dataset.i;
+      if (e.target.closest('[data-ovl-eye]')) { list[i].off = list[i].off ? 0 : 1; setOvl(list); }
+      else if (e.target.closest('[data-ovl-del]')) { list.splice(i, 1); setOvl(list); }
+    });
+    R.ovlRows.addEventListener('change', (e) => {
+      const row = e.target.closest('.cs-ovl-row'); if (!row) return;
+      if (e.target.matches('[data-ovl-pg]')) { const list = ovlList().map((o) => Object.assign({}, o)); list[+row.dataset.i].pg = +e.target.value; setOvl(list); }
+      else if (e.target.matches('[data-ovl-op]')) save(); // the opacity, once the slider is let go
+    });
+    R.ovlRows.addEventListener('input', (e) => { // the opacity while the slider moves: the picture and the markup, no redraw of the page
+      if (!e.target.matches('[data-ovl-op]')) return;
+      const o = ovlList()[+e.target.closest('.cs-ovl-row').dataset.i]; if (!o) return;
+      o.op = +e.target.value; e.target.nextElementSibling.textContent = Math.round(o.op * 100) + '%';
+      const cv = R.ovls.querySelector(`[data-pg="${o.pg}"]`); if (cv) cv.style.opacity = String(o.op);
+      dirty();
+    });
     R.btn = {};
     ['pan', 'select', 'poly', 'rect', 'text', 'dim', 'check', 'snap', 'finish', 'undo', 'dup', 'pie', 'spec', 'mz', 'tstyle', 'tcol', 'trot', 'trl', 'trr', 'tsize','del', 'clear', 'fit', 'zwin', 'rotl', 'rotr', 'scope', 'export', 'fmt', 'pdf', 'print', 'pkind', 'keys'].forEach((k) => (R.btn[k] = q('#cs-b-' + k)));
 
