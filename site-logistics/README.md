@@ -72,9 +72,12 @@ Ctrl is Cmd on a Mac.
 
 ## Workflow
 1. **Open PDF or image...** (or drop a file on the window, or paste an image).
-   **Rotate page** a quarter turn with **⟲ 90°** / **⟳ 90°** in the toolbar, *Rotate page* in the Drawing panel, or
-   **Ctrl+Shift+Minus** / **Ctrl+Shift+Plus** (Cmd on a Mac; the keys Bluebeam and Acrobat use). The turn is shared by
-   every layer's markup turns with it (2026-11-19: toolbar buttons and keys added).
+   **Rotate page** a quarter turn with **⟲ 90°** / **⟳ 90°** in the toolbar, or **Ctrl+Shift+Minus** /
+   **Ctrl+Shift+Plus** (Cmd on a Mac; the keys Bluebeam and Acrobat use). Every layer's markup turns with the page
+   (2026-11-19: toolbar buttons and keys added; the Drawing panel's Rotate page row removed).
+   The **Drawing panel** (left) shows titles and controls only: hover a title or a control for what it does
+   (2026-11-19: the explanation paragraphs moved into tooltips). A short warning shows under Sheet scale only while the
+   drawing has no scale.
 2. **Drawing scale** (left panel): *Calibrate...* on two points a known distance apart, or *Enter 1:N...* for a PDF
    drawn to scale at full size. The sheet scale, scale bar and crane reach in metres need it.
 3. **Snap** (on to start; S or the Snap button turns it off): symbols, line points, area corners, text labels,
@@ -84,6 +87,10 @@ Ctrl is Cmd on a Mac.
    Pick a legend row on the right and draw: lines by clicking points, areas as Polygon or Rect, symbols by a click.
    Double-click or Enter finishes a line or polygon. Select mode moves, reshapes, duplicates (Ctrl+D) and deletes items.
    Cranes: drag the yellow handle for the reach, double-click to type it, *Crane: make pie* for a swing sector.
+   **Crane placement notes** show only while a crane or boom is in hand (a Tower crane, Mobile crane or Placing Boom
+   tool picked, or a placed one being moved): a yellow box in the Drawing panel with the full list for the site
+   address, and a short yellow list beside the cursor (its checkbox turns that off). Otherwise both are hidden
+   (2026-11-19).
    **Symbol size** (left panel, one setting per plan): *Small* or *Large*. Symbols print at a fixed size on the
    11 x 17 sheet at every drawing scale and sheet scale: a standard symbol is 1/4 in tall at Small and 1/2 in at
    Large; smaller ones (cones, drums) keep their proportion, down to a floor so they still read. On screen they show
@@ -126,7 +133,8 @@ it) and is lost if the browser's data is cleared, so use **Save plan file** to k
   its page scale, so its measuring tools read metres without calibrating.
 - **PDF layers and line styles:** markups sit on one PDF layer per plan layer (Site Mobilization, Site Safety, ...,
   Notes; 2026-11-19), at the layer's opacity, so Revu and Acrobat can switch each discipline on and off; fence ticks and the
-  covered walkway's rails use Bluebeam's own `/LineStyle`, so they survive an edit in Revu. Letter marks (E, F),
+  covered walkway's rails use Bluebeam's own `/LineStyle`, so they survive an edit in Revu. On screen and in the
+  sheet, the walkway's two rails stay parallel through every bend, rounded on the outside (2026-11-19). Letter marks (E, F),
   hatches, stripes and footprints still do not.
 - **Questions** (scale entry, calibration distance, crane radius, confirmations) use the tool's own dialog, never the
   browser's `prompt()`/`confirm()`, which embedded browser panes block.

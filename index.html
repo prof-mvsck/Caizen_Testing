@@ -299,11 +299,15 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 5px; border: 1px sol
 #cs-pagebox select { flex: 1 1 0; min-width: 0; width: 0; }
 
 /* crane placement notes: the short list beside the cursor, and the full list in the Drawing panel */
-.cs-cnotes { position: absolute; display: none; z-index: 5; width: 285px; padding: 7px 9px 6px; background: rgba(255, 255, 255, .97); border: 1px solid #111; border-left: 5px solid #fffb00; font-size: 11px; line-height: 1.32; color: #111; pointer-events: none; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); }
+.cs-cnotes { position: absolute; display: none; z-index: 5; width: 285px; padding: 7px 9px 6px; background: rgba(255, 249, 176, .97); border: 1px solid #b59a00; border-left: 5px solid #ffd500; font-size: 11px; line-height: 1.32; color: #111; pointer-events: none; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); }
 .cs-cnotes ul { margin: 4px 0 4px; padding-left: 15px; }
 .cs-cnotes li { margin: 2px 0; }
 .cs-cnotes i { color: #555; font-size: 10px; }
 .cs-cnotes.cs-docked { left: 8px; bottom: 8px; top: auto; width: min(285px, calc(100% - 16px)); }
+/* Crane placement notes: a yellow box in the Drawing panel, shown only while a crane or boom is in hand */
+.cs-cnpanel { margin: 12px 0 6px; padding: 2px 8px 8px; background: #fff9b0; border: 1px solid #b59a00; border-left: 5px solid #ffd500; }
+.cs-cnpanel h3 { margin-top: 6px; font-weight: 700; }
+.cs-side h3[title] { cursor: help; }
 .cs-cn { margin: 4px 0; border: 1px solid #ccc; background: #fff; }
 .cs-cn summary { padding: 5px 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
 .cs-cn ul { margin: 2px 8px 7px; padding-left: 15px; font-size: 11px; line-height: 1.35; }
@@ -70528,6 +70532,21 @@ function createSitePlan(CFG) {
   const FIXED_SCALES = [100, 125, 150, 200, 250, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500].map((n) => [n, '1:' + n.toLocaleString()])
     .concat([[120, 10], [240, 20], [360, 30], [480, 40], [600, 50], [1200, 100]].map(([n, ft]) => [n, `1" = ${ft}' (1:${n.toLocaleString()})`]))
     .concat([[48, '1/4" = 1\'-0" (1:48)'], [96, '1/8" = 1\'-0" (1:96)']]); // the two symbol-size scales, so a sheet can print them at full size
+  // The Drawing panel shows titles and controls only; what each does is in its tooltip (hover a title or a control).
+  const TIPS = {
+    ovl: 'Lay up to four other pages (floors, levels) over this one, each with its own markup, to see how they line up. On screen only: the export prints this page alone.',
+    cal: 'How big the drawing really is. The sheet scale, the scale bar, the legend scale and crane reach in metres all need it.',
+    calBtn: 'Pick two points a known distance apart, then type the distance (metres, or add ft).',
+    ratio: 'For a PDF drawn at full size, e.g. 1:200; 1/8" = 1\'-0" is 1:96.',
+    sheet: 'The export prints at this scale, shown in the title block and on the scale bar. It prints what is inside the dashed outline (the sheet\'s shape); outside it is shaded. ' +
+      'Zoomed out as far as it goes, the outline fills the window: that is the whole sheet. Scroll to zoom in for a closer look and back out to it; zooming does not change the scale. ' +
+      'Drag at the whole sheet to move what prints. On Auto, Fit picks the largest standard scale that shows the whole page, and Selected the one for a rectangle you drag.',
+    sym: 'How tall symbols print on the sheet, at every scale. Lines, areas and crane reach are not affected.',
+    saving: 'Markup saves automatically in this browser, separately for each drawing (by file name and size), and the last drawing reopens next time. ' +
+      'Clearing the browser\'s data loses it, so save a plan file to keep or hand over the work.',
+    crane: 'What to keep in mind when placing a crane or boom. Reminders from public sources, in plain words: they do not judge where a crane stands, and the rules themselves govern. ' +
+      'The list follows the site address (Project panel). Shows while a crane or boom is being placed or moved.',
+  };
   const scaleName = (n) => { const f = FIXED_SCALES.find((s) => s[0] === n && /"/.test(s[1])); return f ? f[1] : '1:' + n.toLocaleString(); };
 
   // ---------- saved state ----------
@@ -71050,11 +71069,23 @@ function createSitePlan(CFG) {
       return s;
     }
     if (st.tracks) { // two rails with cross ties (Bluebeam's "Tracks" line style), all sized from the line width
-      const w = st.width;
-      const side = (k) => P.map((p, i) => { const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [p[0] - ((b[1] - a[1]) / l) * k, p[1] + ((b[0] - a[0]) / l) * k]; });
+      // The rails are the band between 2.5 and 3.5 line widths from the route: a wide stroke less a narrower one (a
+      // mask), so they keep their distance from it through every bend, rounded on the outside. Each rail used to be the
+      // route's points pushed sideways along the average of their neighbours, which skewed it at a bend (user,
+      // 2026-11-19: "when bending, the lines are skewed; they should remain parallel at all times"). Ties are left out
+      // where they would cross a bend.
+      const w = st.width, mid = `cs-tm-${CFG.id}-${id}`, dash = preview ? ' stroke-dasharray="6 4"' : '';
+      const bends = []; L.slice(0, -1).reduce((at, l) => (bends.push(at + l), at + l), 0); // the route's length at each bend
       let ties = '';
-      for (let dist = 4 * w; dist < total; dist += 8 * w) { const [x, y, a] = pointAt(P, L, dist), nx = -Math.sin(a) * 4 * w, ny = Math.cos(a) * 4 * w; ties += `M${fmt(x - nx)} ${fmt(y - ny)}L${fmt(x + nx)} ${fmt(y + ny)}`; }
-      s += `<path d="${pathD(side(3 * w))}${pathD(side(-3 * w))}${ties}" fill="none" stroke="${st.color}" stroke-width="${w}" stroke-linejoin="round"${preview ? ' stroke-dasharray="6 4"' : ''}/>`;
+      for (let dist = 4 * w; dist < total; dist += 8 * w) {
+        if (bends.some((b) => Math.abs(dist - b) < 4.5 * w)) continue;
+        const [x, y, a] = pointAt(P, L, dist), nx = -Math.sin(a) * 4 * w, ny = Math.cos(a) * 4 * w;
+        ties += `M${fmt(x - nx)} ${fmt(y - ny)}L${fmt(x + nx)} ${fmt(y + ny)}`;
+      }
+      s += `<defs><mask id="${mid}" maskUnits="userSpaceOnUse" x="-50000" y="-50000" width="100000" height="100000">` +
+        `<path d="${d}" fill="none" stroke="#fff" stroke-width="${7 * w}" stroke-linejoin="round"/><path d="${d}" fill="none" stroke="#000" stroke-width="${5 * w}" stroke-linejoin="round"/></mask></defs>`;
+      s += `<path d="${d}" fill="none" stroke="${st.color}" stroke-width="${7 * w}" stroke-linejoin="round" mask="url(#${mid})"${dash}/>`;
+      if (ties) s += `<path d="${ties}" fill="none" stroke="${st.color}" stroke-width="${w}"${dash}/>`;
       if (sel) s += `<path class="cs-selring" d="${d}" fill="none" stroke="#1a73e8" stroke-width="2" stroke-dasharray="5 4"/>`;
       return s;
     }
@@ -72321,9 +72352,10 @@ function createSitePlan(CFG) {
   function craneNotesAt(e) {
     const el = R.cnotes;
     if (!el || !CN) return;
+    cranePanelAt();
     const it = R.drag && R.drag.item && R.drag.moved ? find(R.drag.item) : null;
     const kind = craneKind(R.mode === 'draw' ? R.tool : it ? it.sym : null);
-    const fill = (k) => { const key = k + '|' + cnScope(); if (el.dataset.k !== key) { el.dataset.k = key; el.innerHTML = craneNotesHtml(k); } };
+    const fill =(k) => { const key = k + '|' + cnScope(); if (el.dataset.k !== key) { el.dataset.k = key; el.innerHTML = craneNotesHtml(k); } };
     if (COARSE) { // no cursor on a touch screen: the list sits in the corner while a crane is armed
       const k = R.mode === 'draw' ? craneKind(R.tool) : null, show = !!k && !csNotes.off;
       if (show) fill(k);
@@ -72339,10 +72371,24 @@ function createSitePlan(CFG) {
   }
   function craneNotesPanel() { // the Drawing panel's section; renderCraneNotes fills the box for the address in hand
     if (!CN) return '';
-    return `<h3>CRANE PLACEMENT NOTES</h3>
-          <div class="cs-note">What to keep in mind when placing a crane. Reminders from public sources, in plain words: they do not judge where a crane stands, and the rules themselves govern. The list follows the site address (Project panel).</div>
-          <label class="cs-chk"><input type="checkbox" id="cs-cn-on"> Show the short list beside the cursor while placing a crane</label>
-          <div id="cs-cn-box"></div>`;
+    return `<div class="cs-cnpanel" id="cs-cnpanel" hidden>
+          <h3 title="${esc(TIPS.crane)}">CRANE PLACEMENT NOTES</h3>
+          <label class="cs-chk"><input type="checkbox" id="cs-cn-on"> Short list beside the cursor</label>
+          <div id="cs-cn-box"></div></div>`;
+  }
+  // The yellow Crane placement notes box shows only while a crane or boom is in hand (its tool picked, or one being
+  // moved), and scrolls into view in the Drawing panel when it appears.
+  function cranePanelAt() {
+    const el = R.cnPanel;
+    if (!el || !CN) return;
+    const it = R.drag && R.drag.item && R.drag.moved ? find(R.drag.item) : null;
+    const show = !!(PLAN && craneKind(R.mode === 'draw' ? R.tool : it ? it.sym : null));
+    if (el.hidden === !show) return;
+    el.hidden = !show;
+    const side = el.closest('.cs-side');
+    if (!show || !side || !side.offsetParent || side.scrollHeight <= side.clientHeight) return;
+    const sb = side.getBoundingClientRect(), eb = el.getBoundingClientRect();
+    if (eb.top < sb.top || eb.top > sb.bottom - 120) side.scrollTop += eb.top - sb.top - 8;
   }
   function renderCraneNotes() {
     const box = R.root && R.root.querySelector('#cs-cn-box');
@@ -72825,7 +72871,7 @@ function createSitePlan(CFG) {
       if (!d.moved) return;
       if (d.item) {
         const it = find(d.item);
-        if (!it) { R.drag = null; R.map.classList.remove('cs-grabbing'); return; } // deleted or undone mid-drag
+        if (!it) { R.drag = null; R.map.classList.remove('cs-grabbing'); cranePanelAt(); return; } // deleted or undone mid-drag
         it.pts = d.orig.map((q) => [q[0] + dx / V.z, q[1] + dy / V.z]);
         if (it.sym === '_text') { R.snap = snapText(it.pts[0], it.id); if (R.snap) it.pts[0] = R.snap.p.slice(); } // a dragged label snaps like a new one
         else { // a symbol snaps by its point; an area or a line by its point nearest where it was taken hold of, the rest moving with it
@@ -72878,7 +72924,7 @@ function createSitePlan(CFG) {
     }
     const d = R.drag;
     if (!d || d.id !== e.pointerId) return;
-    R.drag = null; R.map.classList.remove('cs-grabbing');
+    R.drag = null; R.map.classList.remove('cs-grabbing'); cranePanelAt();
     if (R.snap && d.item) { R.snap = null; dirty(); }
     if (d.up) { d.up(e); return; }
     if (e.type === 'pointercancel') { if (d.moved && d.item) save(); return; }
@@ -72904,7 +72950,7 @@ function createSitePlan(CFG) {
   function startPinch() {
     const d = R.drag;
     if (d && d.item && d.moved) { save(); R.snap = null; dirty(); } // the item stays wherever it got to
-    R.drag = null; R.map.classList.remove('cs-grabbing');
+    R.drag = null; R.map.classList.remove('cs-grabbing'); cranePanelAt();
     if (d && d.up) d.up({ pinch: true }); // a handle being dragged ends where it got to (saved, snap marker cleared)
     if (R.snap) { R.snap = null; dirty(); }
     const [a, b] = [...R.ptrs.values()];
@@ -74127,6 +74173,7 @@ function createSitePlan(CFG) {
   function updateUi() {
     if (!R.root) return;
     if (COARSE || !(R.mode === 'draw' && craneKind(R.tool)) && !R.drag) craneNotesAt(null);
+    cranePanelAt();
     const cn = R.root.querySelector('#cs-cn-on'); if (cn) cn.checked = !csNotes.off;
     const on = (el, f) => el.classList.toggle('cs-on', f);
     on(R.btn.pan, R.mode === 'pan'); on(R.btn.select, R.mode === 'select');
@@ -74172,19 +74219,15 @@ function createSitePlan(CFG) {
       R.pageSel.value = String(D.page);
       R.prevBtn.disabled = D.page <= 1; R.nextBtn.disabled = D.page >= D.pages;
     }
-    R.scaleInfo.textContent = !has ? 'Open a drawing first.' : mpu() ? scaleText() : 'Not set. The scale bar, the legend scale and crane reach in metres need it.';
+    R.scaleInfo.textContent = !has ? 'Open a drawing first.' : mpu() ? scaleText() : 'Not set.';
     R.calBtn.disabled = !has;
     R.ratioBtn.style.display = !has || D.kind === 'pdf' ? '' : 'none'; R.ratioBtn.disabled = !has;
     R.noScaleBtn.style.display = has && mpu() ? '' : 'none';
-    R.fadeIn.disabled = R.rotL.disabled = R.rotR.disabled = R.btn.rotl.disabled = R.btn.rotr.disabled = R.savePlanBtn.disabled = R.loadPlanBtn.disabled = !has;
-    R.rotV.textContent = !has || !D.rot ? 'as opened' : D.rot === 2 ? 'upside down' : D.rot === 1 ? 'a quarter turn right' : 'a quarter turn left';
+    R.fadeIn.disabled = R.btn.rotl.disabled = R.btn.rotr.disabled = R.savePlanBtn.disabled = R.loadPlanBtn.disabled = !has;
     // The sheet scale is the scale the export prints at. It means nothing until the drawing itself has a scale (Drawing
-    // Scale, above), so until then it is switched off and its note says what to do, rather than looking set.
+    // Scale, above), so until then it is switched off and a one-line warning says what to do, rather than looking set.
     R.sheetSel.disabled = !has || !mpu();
-    const sheetNote = R.sheetSel.nextElementSibling;
-    if (!R.sheetNoteText) R.sheetNoteText = sheetNote.textContent;
-    sheetNote.textContent = has && !mpu() ? 'Set the Drawing Scale above first (Calibrate, or Enter 1:N). That tells the tool how big the drawing really is; the sheet scale, the scale bar and crane reach in metres all need it. Until then the export is not to scale.' : R.sheetNoteText;
-    sheetNote.classList.toggle('cs-warn', has && !mpu());
+    R.sheetWarn.hidden = !(has && !mpu());
     R.sheetSel.value = has ? String(PLAN.sheetScale || 'auto') : 'auto';
     R.symSel.disabled = !has;
     R.symSel.value = symSize()[0];
@@ -74193,14 +74236,14 @@ function createSitePlan(CFG) {
     R.fadeIn.value = fade; R.fadeV.textContent = Math.round(fade * 100) + '%';
     renderOvlPanel();
   }
-  // The Symbol size note: the ground height of a 36-unit symbol (0.36 in on paper at 1:S), and what it prints at on the
-  // sheet scale in use (Auto's follows the view, so render() keeps it current).
+  // The Symbol size tooltip: the ground height of a 36-unit symbol (0.36 in on paper at 1:S), and what it prints at on
+  // the sheet scale in use (Auto's follows the view, so render() keeps it current).
   function setSymNote(fr) {
-    if (!R.symNote) return;
+    if (!R.symSel) return;
     const z = symSize(), inch = z[2] / 100;
-    const t = !fr || !PLAN ? 'Open a drawing first.'
+    const t = !fr || !PLAN ? TIPS.sym
       : `Symbols print ${inch} in (${Math.round(inch * 25.4)} mm) tall on the 11 x 17 sheet at every scale; smaller ones such as cones keep their proportion, down to ${(SYM_MIN * z[2] / 3600).toFixed(2)} in. On screen they show at the size they will have against the drawing on the sheet. Lines, areas and crane reach are not affected.`;
-    if (R.symNote.textContent !== t) R.symNote.textContent = t;
+    if (R.symSel.title !== t) R.symSel.title = t;
   }
   function fillInfo() {
     if (!R.root) return;
@@ -74325,39 +74368,31 @@ function createSitePlan(CFG) {
             <button class="cs-btn" id="cs-next" title="Next page">›</button>
           </div>
           <div id="cs-ovlbox" style="display:none">
-            <h3>PAGE OVERLAY</h3>
-            <div class="cs-note">Lay up to four other pages (floors, levels) over this one, each with its own markup, to see how they line up. On screen only: the export prints this page alone.</div>
+            <h3 title="${esc(TIPS.ovl)}">PAGE OVERLAY</h3>
             <div id="cs-ovl"></div>
             <button class="cs-btn" id="cs-ovl-add" title="Lay another page of this drawing over the page showing">+ Add a page to lay over</button>
           </div>
-          <h3>DRAWING SCALE</h3>
+          <h3 title="${esc(TIPS.cal)}">DRAWING SCALE</h3>
           <div class="cs-note cs-strong" id="cs-scaleinfo"></div>
           <div class="cs-line">
-            <button class="cs-btn" id="cs-cal">Calibrate…</button>
-            <button class="cs-btn" id="cs-ratio">Enter 1:N…</button>
-            <button class="cs-btn" id="cs-noscale">Clear</button>
+            <button class="cs-btn" id="cs-cal" title="${esc(TIPS.calBtn)}">Calibrate…</button>
+            <button class="cs-btn" id="cs-ratio" title="${esc(TIPS.ratio)}">Enter 1:N…</button>
+            <button class="cs-btn" id="cs-noscale" title="Forget this drawing's scale">Clear</button>
           </div>
-          <div class="cs-note">Calibrate: pick two points a known distance apart, then type the distance (metres, or add ft). Enter 1:N works for a PDF drawn at full size, e.g. 1:200; 1/8" = 1'-0" is 1:96.</div>
-          <h3>SHEET SCALE</h3>
-          <select id="cs-sheetscale" title="Scale of the exported 11 x 17 sheet">
+          <h3 title="${esc(TIPS.sheet)}">SHEET SCALE</h3>
+          <select id="cs-sheetscale" title="${esc(TIPS.sheet)}">
             <option value="auto">Auto: standard scale picked by Fit or Selected</option>
             ${FIXED_SCALES.map(([n, t]) => `<option value="${n}">${esc(t)}</option>`).join('')}
           </select>
-          <div class="cs-note">The export prints at this scale, shown in the title block and on the scale bar. It prints what is inside the dashed outline on the drawing (the sheet's shape); outside it is shaded. Zoomed out as far as it goes, the outline fills the window: that is the whole sheet at this scale. Scroll to zoom in for a closer look (the print area stays where it is) and back out to it; zooming does not change the scale. Drag at the whole sheet to move what prints. On Auto, Fit picks the largest standard scale that shows the whole page, and Selected the one for a rectangle you drag.</div>
-          <h3>SYMBOL SIZE</h3>
-          <select id="cs-symsize" title="How tall symbols print on the sheet. It does not change with the drawing scale or the sheet scale.">
+          <div class="cs-note cs-warn" id="cs-sheetwarn" hidden>Set the drawing scale first.</div>
+          <h3 title="${esc(TIPS.sym)}">SYMBOL SIZE</h3>
+          <select id="cs-symsize" title="${esc(TIPS.sym)}">
             ${SYM_SIZES.map(([n, t]) => `<option value="${n}">${esc(t)}</option>`).join('')}
           </select>
-          <div class="cs-note" id="cs-symnote"></div>
           <h3>DISPLAY</h3>
           <label class="cs-rng"><span>Fade the drawing</span><input type="range" id="cs-fade" min="0" max="0.85" step="0.05" value="0"><b id="cs-fadev">0%</b></label>
-          <div class="cs-line"><span>Rotate page</span>
-            <button class="cs-btn" id="cs-rotl" title="Turn this page a quarter turn to the left. The markup on every layer turns with it. Also in the toolbar (⟲ 90°), or Ctrl+Shift+Minus.">⟲ Left</button>
-            <button class="cs-btn" id="cs-rotr" title="Turn this page a quarter turn to the right. The markup on every layer turns with it. Also in the toolbar (⟳ 90°), or Ctrl+Shift+Plus.">⟳ Right</button></div>
-          <div class="cs-note">This page is shown <b id="cs-rotv">as opened</b>. Turn it so the drawing reads the right way up; it prints the way it is shown.</div>
           ${craneNotesPanel()}
-          <h3>SAVING</h3>
-          <div class="cs-note">Markup saves automatically in this browser, separately for each drawing (by file name and size), and the last drawing reopens next time. Clearing the browser's data loses it, so save a plan file to keep or hand over the work.</div>
+          <h3 title="${esc(TIPS.saving)}">SAVING</h3>
           <div class="cs-line">
             <button class="cs-btn" id="cs-saveplan" title="Save the markup, scales and title block of this drawing as a .json file (Ctrl+S)">Save plan file</button>
             <button class="cs-btn" id="cs-loadplan" title="Load a saved plan file onto the open drawing">Load plan file…</button>
@@ -74396,9 +74431,9 @@ function createSitePlan(CFG) {
     R.sb = q('.cs-sb'); R.sbBar = q('.cs-sb .cs-bar'); R.sbLabel = q('.cs-sblabel'); R.scaleEl = q('#cs-scale');
     R.fname = q('#cs-fname'); R.fmeta = q('#cs-fmeta'); R.pagebox = q('#cs-pagebox'); R.pageSel = q('#cs-page'); R.prevBtn = q('#cs-prev'); R.nextBtn = q('#cs-next');
     R.scaleInfo = q('#cs-scaleinfo'); R.calBtn = q('#cs-cal'); R.ratioBtn = q('#cs-ratio'); R.noScaleBtn = q('#cs-noscale');
-    R.fadeIn = q('#cs-fade'); R.fadeV = q('#cs-fadev'); R.rotL = q('#cs-rotl'); R.rotR = q('#cs-rotr'); R.rotV = q('#cs-rotv'); R.fileIn = q('#cs-file');
+    R.fadeIn = q('#cs-fade'); R.fadeV = q('#cs-fadev'); R.fileIn = q('#cs-file');
     R.notesEl = q('#cs-notes'); R.sheetSel = q('#cs-sheetscale'); R.planIn = q('#cs-planfile');
-    R.symSel = q('#cs-symsize'); R.symNote = q('#cs-symnote');
+    R.symSel = q('#cs-symsize'); R.sheetWarn = q('#cs-sheetwarn'); R.cnPanel = q('#cs-cnpanel');
     R.savePlanBtn = q('#cs-saveplan'); R.loadPlanBtn = q('#cs-loadplan');
     R.ovls = q('.cs-ovls'); R.ovlBox = q('#cs-ovlbox'); R.ovlRows = q('#cs-ovl'); R.ovlAdd = q('#cs-ovl-add');
     R.ovlAdd.onclick = () => { // the nearest page not showing and not laid over yet
@@ -74542,8 +74577,8 @@ function createSitePlan(CFG) {
       cnOn.checked = !csNotes.off;
       cnOn.onchange = () => { csNotes.off = !cnOn.checked; try { localStorage.setItem('siteLogistics.craneNotesOff', csNotes.off ? '1' : ''); } catch (e) {} craneNotesAt(null); };
     }
-    R.rotL.onclick = R.btn.rotl.onclick = () => rotatePage(-1);
-    R.rotR.onclick = R.btn.rotr.onclick = () => rotatePage(1);
+    R.btn.rotl.onclick = () => rotatePage(-1);
+    R.btn.rotr.onclick = () => rotatePage(1);
 
     R.map.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove, true);

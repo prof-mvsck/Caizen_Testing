@@ -286,11 +286,15 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 5px; border: 1px sol
 #cs-pagebox select { flex: 1 1 0; min-width: 0; width: 0; }
 
 /* crane placement notes: the short list beside the cursor, and the full list in the Drawing panel */
-.cs-cnotes { position: absolute; display: none; z-index: 5; width: 285px; padding: 7px 9px 6px; background: rgba(255, 255, 255, .97); border: 1px solid #111; border-left: 5px solid #fffb00; font-size: 11px; line-height: 1.32; color: #111; pointer-events: none; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); }
+.cs-cnotes { position: absolute; display: none; z-index: 5; width: 285px; padding: 7px 9px 6px; background: rgba(255, 249, 176, .97); border: 1px solid #b59a00; border-left: 5px solid #ffd500; font-size: 11px; line-height: 1.32; color: #111; pointer-events: none; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); }
 .cs-cnotes ul { margin: 4px 0 4px; padding-left: 15px; }
 .cs-cnotes li { margin: 2px 0; }
 .cs-cnotes i { color: #555; font-size: 10px; }
 .cs-cnotes.cs-docked { left: 8px; bottom: 8px; top: auto; width: min(285px, calc(100% - 16px)); }
+/* Crane placement notes: a yellow box in the Drawing panel, shown only while a crane or boom is in hand */
+.cs-cnpanel { margin: 12px 0 6px; padding: 2px 8px 8px; background: #fff9b0; border: 1px solid #b59a00; border-left: 5px solid #ffd500; }
+.cs-cnpanel h3 { margin-top: 6px; font-weight: 700; }
+.cs-side h3[title] { cursor: help; }
 .cs-cn { margin: 4px 0; border: 1px solid #ccc; background: #fff; }
 .cs-cn summary { padding: 5px 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
 .cs-cn ul { margin: 2px 8px 7px; padding-left: 15px; font-size: 11px; line-height: 1.35; }
