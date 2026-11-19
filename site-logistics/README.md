@@ -46,6 +46,11 @@ editable text markup in Bluebeam).
    checked by, date). It prints exactly as laid out on screen.
 5. **Sheet scale** (left panel): *Auto* uses the largest standard scale (1:100, 1:125, 1:150, 1:200, 1:250, ...) at
    which everything in view still fits. A fixed scale (metric, 1" = 20' style, or 1/4" = 1'-0" and 1/8" = 1'-0") prints the area inside the dashed frame on screen.
+   **Once the drawing has a scale, the view is held at the sheet scale** (2026-11-19): the dashed outline always fills
+   the window as the sheet's print area, and the drawing pans under it (drag, scroll, Shift+scroll sideways; two
+   fingers on a touch screen) but does not zoom. The scale changes with *Sheet scale*, or on *Auto* with **Fit** (the
+   largest standard scale that shows the whole page) and **Selected** (the one for a dragged rectangle). Calibrate can
+   zoom while its two points are picked and puts the view back after. Without a drawing scale, zoom is free.
 6. **Export PNG / Export PDF**: 11 x 17 in at 200 dpi, with the drawing at the sheet scale, a north arrow, a scale bar,
    a legend of only the symbols used, and the title block. **Print at actual size (100%)**, not "fit to page", or the
    scale will be wrong. The border sits 1/4 in in from the paper edge so a 100% print does not clip it.

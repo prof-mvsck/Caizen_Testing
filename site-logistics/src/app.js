@@ -429,10 +429,26 @@ function createSitePlan(CFG) {
   // drawing smaller than it was set up (user, 2026-11-18: "why are the page shrunk"). Without a drawing scale that
   // rectangle fills the sheet, not to scale (N null). With one, Auto rounds its scale up to the next standard scale
   // (so all of the rectangle still prints; the outline then shows the slightly larger area), or a fixed scale is used.
-  function printFrame() { // that rectangle's size on screen, px
-    const r = MAP_IN.w / MAP_IN.h, w = Math.min(V.w, V.h * r);
+  function printFrame() { // that rectangle's size on screen, px, in the part of the window below the toolbar
+    const r = MAP_IN.w / MAP_IN.h, w = Math.min(V.w, (V.h - tbInset()) * r);
     return { w, h: w / r };
   }
+  // The toolbar floats over the top of the map window. The print outline is fitted into the part below it, and the
+  // view's centre (V.cx, V.cy) sits in the middle of that part (midY), so everything that prints is in sight, not under
+  // the toolbar (user, 2026-11-19: "when the scale is set, make it look like what the export will look like"). Measured
+  // when the window changes size or a drawing opens, not as buttons come and go, so the outline does not jump about.
+  function tbInset() {
+    if (R.tbInset == null && D.ready && R.root && R.map) {
+      R.root.classList.add('cs-has-doc'); // the toolbar shows with a drawing (render sets this too)
+      const tb = R.root.querySelector('.cs-tb');
+      if (tb && tb.offsetParent) {
+        const a = tb.getBoundingClientRect(), b = R.map.getBoundingClientRect();
+        R.tbInset = Math.max(0, Math.min(V.h * 0.4, a.bottom - b.top + 6));
+      }
+    }
+    return R.tbInset || 0;
+  }
+  const midY = (v) => v.h / 2 + (v === V ? tbInset() / 2 : 0); // where the view's centre is on screen; the export's is its middle
   function sheetFrame() {
     const pf = printFrame(), vw = pf.w / V.z, vh = pf.h / V.z, zFit = vw && vh ? Math.min(MAP_IN.w / vw, MAP_IN.h / vh) : 1;
     const m = mpu(), fixed = PLAN && PLAN.sheetScale !== 'auto' ? +PLAN.sheetScale : 0;
@@ -446,8 +462,8 @@ function createSitePlan(CFG) {
   }
 
   // ---------- drawing <-> screen ----------
-  function toScreen(x, y) { return [(x - CV.cx) * CV.z + CV.w / 2, (y - CV.cy) * CV.z + CV.h / 2]; }
-  function toMap(px, py) { return [(px - V.w / 2) / V.z + V.cx, (py - V.h / 2) / V.z + V.cy]; }
+  function toScreen(x, y) { return [(x - CV.cx) * CV.z + CV.w / 2, (y - CV.cy) * CV.z + midY(CV)]; }
+  function toMap(px, py) { return [(px - V.w / 2) / V.z + V.cx, (py - midY(V)) / V.z + V.cy]; }
   function withView(view, fn) { const prev = CV; CV = view; try { return fn(); } finally { CV = prev; } }
   const fitZ = () => { const pf = printFrame(); return Math.min(pf.w / D.w, pf.h / D.h) * 0.94; }; // the page whole inside the print outline
   function clampZ(z) { const f = fitZ(); return Math.max(f * 0.25, Math.min(z, Math.max(f * 64, D.kind === 'img' ? 16 : 40))); }
@@ -500,7 +516,27 @@ function createSitePlan(CFG) {
   }
   function zoomAt(px, py, f) {
     const m = toMap(px, py);
-    V.z = clampZ(V.z * f); V.cx = m[0] - (px - V.w / 2) / V.z; V.cy = m[1] - (py - V.h / 2) / V.z; dirty();
+    V.z = clampZ(V.z * f); V.cx = m[0] - (px - V.w / 2) / V.z; V.cy = m[1] - (py - midY(V)) / V.z; dirty();
+  }
+  // With a drawing scale set, the view is held at the print scale: the dashed outline is always the sheet's whole print
+  // area (printFrame), and the drawing pans under it but does not zoom (user, 2026-11-19: "when set, the dashed
+  // rectangle stays locked to the template size, and the page can only pan, not zoom"). The scale then changes only
+  // with Sheet scale, or on Auto with Fit and Selected, which pick the largest standard scale that shows the page or the
+  // rectangle. Calibrate lets go while its two points are picked, so they can be zoomed in on, and puts the view back
+  // after (setMode). Without a drawing scale, zoom is free as before.
+  const zoomLocked = () => !!mpu() && R.mode !== 'cal';
+  function holdScale() { // the zoom at which the print outline fills the print frame, at the scale that prints
+    if (!D.ready || !zoomLocked() || !V.w || !V.h) return;
+    const z = (printFrame().w * sheetFrame().z) / MAP_IN.w;
+    // the same ceiling as a free zoom, for a fixed scale far larger than the drawing's: the outline is then bigger than
+    // the window, and says so ("Prints more than the window")
+    if (Number.isFinite(z) && z > 0) V.z = Math.min(z, Math.max(fitZ() * 64, D.kind === 'img' ? 16 : 40));
+  }
+  function lockedNote() { // once a session per tab: why the wheel or a pinch moves the drawing instead of zooming it
+    if (R.lockTold) return;
+    R.lockTold = true;
+    const fr = sheetFrame();
+    toast(`Zoom is held at the print scale (${scaleName(fr.N)}), so the dashed outline is exactly what prints. ${COARSE ? 'Drag' : 'Drag or scroll'} to move the drawing; change the scale with Sheet scale${fr.auto ? ', Fit or Selected' : ''}.`);
   }
 
   // ---------- polyline helpers (screen space) ----------
@@ -816,8 +852,8 @@ function createSitePlan(CFG) {
   // The part of the view the sheet will print, outlined with the rest shaded, and its scale. Screen only, never exported.
   function extentMarkup(fr) {
     if (R.exporting) return '';
-    const w = (MAP_IN.w / fr.z) * V.z, h = (MAP_IN.h / fr.z) * V.z, x = V.w / 2 - w / 2, y = V.h / 2 - h / 2;
-    if (x <= 1 && y <= 1) // larger than the window both ways (a fixed scale): all of the view prints, and more
+    const w = (MAP_IN.w / fr.z) * V.z, h = (MAP_IN.h / fr.z) * V.z, x = V.w / 2 - w / 2, y = midY(V) - h / 2;
+    if (x <= 1 && y <= tbInset() + 1) // larger than the window both ways (a fixed scale): all of the view prints, and more
       return `<text x="${fmt(V.w - 8)}" y="${fmt(V.h - 8)}" text-anchor="end" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="11.5" fill="#1a73e8" stroke="#fff" stroke-width="4" paint-order="stroke">Prints more than the window at ${esc(scaleName(fr.N))}</text>`;
     const r = `M${fmt(x)} ${fmt(y)}h${fmt(w)}v${fmt(h)}h${fmt(-w)}Z`;
     return `<path d="M-10 -10H${V.w + 10}V${V.h + 10}H-10Z${r}" fill="#1b2433" fill-opacity=".14" fill-rule="evenodd"/>` +
@@ -839,6 +875,8 @@ function createSitePlan(CFG) {
     if (R.batch) return; // an all-pages export is walking the pages: the screen waits
     R.root.classList.toggle('cs-has-doc', D.ready);
     if (!D.ready) { R.layer.innerHTML = ''; R.scaleEl.textContent = '-'; R.notesEl.textContent = notesText({}).join('\n'); return; }
+    if (!R.exporting) holdScale(); // a scale set, Fit, Selected, a resize, a page shown: back to the print scale
+    if (R.hintLock !== zoomLocked()) { R.hintLock = zoomLocked(); R.hintEl.textContent = hintText(); } // "scroll to zoom" or not
     const [tx, ty] = toScreen(0, 0);
     R.page.style.transform = `translate(${tx}px, ${ty}px) scale(${V.z})`;
     const fs = R.frame.style;
@@ -1957,7 +1995,7 @@ function createSitePlan(CFG) {
     const size = 9 * (R.frz ? CV.z / R.frz : 1), W = CV.w || 1e6, H = CV.h || 1e6, G = 96, grid = new Map();
     // "on the sheet" means inside the printed map window, in the view being drawn: on export that is the whole view; on
     // screen it is the dashed sheet frame (centred on the view), so the screen shows the sides the sheet will print
-    const fk = R.frz ? CV.z / R.frz : 0, F = fk && CV.w ? [CV.w / 2 - (MAP_IN.w * fk) / 2, CV.h / 2 - (MAP_IN.h * fk) / 2, CV.w / 2 + (MAP_IN.w * fk) / 2, CV.h / 2 + (MAP_IN.h * fk) / 2] : [0, 0, W, H];
+    const fk = R.frz ? CV.z / R.frz : 0, F = fk && CV.w ? [CV.w / 2 - (MAP_IN.w * fk) / 2, midY(CV) - (MAP_IN.h * fk) / 2, CV.w / 2 + (MAP_IN.w * fk) / 2, midY(CV) + (MAP_IN.h * fk) / 2] : [0, 0, W, H];
     const onSheet = (b) => Math.max(0, Math.min(b[2], F[2]) - Math.max(b[0], F[0])) * Math.max(0, Math.min(b[3], F[3]) - Math.max(b[1], F[1])) / Math.max(1e-9, (b[2] - b[0]) * (b[3] - b[1]));
     // what is taken, in a grid of G-unit cells; a box well off the view neither takes room nor is looked for
     const near = (b) => b[2] > -W && b[0] < 2 * W && b[3] > -H && b[1] < 2 * H;
@@ -2388,13 +2426,14 @@ function createSitePlan(CFG) {
     const [a, b] = [...R.ptrs.values()];
     const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
     R.pinch = { d0: Math.max(10, Math.hypot(a[0] - b[0], a[1] - b[1])), z0: V.z, m: toMap(mid[0], mid[1]) };
+    if (zoomLocked()) lockedNote();
   }
   function movePinch() {
     const [a, b] = [...R.ptrs.values()];
     if (!a || !b) return;
     const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], dist = Math.max(10, Math.hypot(a[0] - b[0], a[1] - b[1]));
-    V.z = clampZ(R.pinch.z0 * dist / R.pinch.d0);
-    V.cx = R.pinch.m[0] - (mid[0] - V.w / 2) / V.z; V.cy = R.pinch.m[1] - (mid[1] - V.h / 2) / V.z;
+    V.z = zoomLocked() ? R.pinch.z0 : clampZ(R.pinch.z0 * dist / R.pinch.d0); // held at the print scale: two fingers pan
+    V.cx = R.pinch.m[0] - (mid[0] - V.w / 2) / V.z; V.cy = R.pinch.m[1] - (mid[1] - midY(V)) / V.z;
     dirty();
   }
   // corners, edge midpoints, crane reach and crane pie edges
@@ -2487,6 +2526,15 @@ function createSitePlan(CFG) {
     if (!D.ready || e.target.closest('.cs-ui')) return;
     e.preventDefault();
     const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+    if (zoomLocked()) { // held at the print scale: the wheel pans (Shift+wheel sideways); a trackpad pinch (Ctrl) does nothing
+      if (!e.ctrlKey) {
+        let dx = e.deltaX * k, dy = e.deltaY * k;
+        if (e.shiftKey && !dx) { dx = dy; dy = 0; }
+        V.cx += dx / V.z; V.cy += dy / V.z; dirty();
+      }
+      lockedNote();
+      return;
+    }
     const f = Math.exp(-Math.max(-1, Math.min(1, e.deltaY * k * (e.ctrlKey ? 0.01 : 0.003))));
     zoomAt(...local(e), f);
   }
@@ -3352,8 +3400,10 @@ function createSitePlan(CFG) {
     if (!D.ready) return '';
     const stop = COARSE ? 'Tap Pan to stop.' : 'Esc to stop.';
     if (R.mode === 'cal') return `Calibrate: ${tap} two points a known distance apart (a dimension or grid line), then type the real distance. ${snapNote()}${COARSE ? '' : ' Hold Shift to lock the second point level or plumb.'} ${stop}`;
-    if (R.mode === 'pan' && OV) return `Drag to pan; ${COARSE ? 'pinch' : 'scroll'} to zoom. Tick the tabs to show, and set their opacity, on the right.`;
-    if (R.mode === 'pan') return `Drag to pan; ${COARSE ? 'pinch' : 'scroll'} to zoom. Pick a legend item to start placing.`;
+    const nav = zoomLocked() ? `Drag${COARSE ? '' : ' or scroll'} to pan; zoom is held at the print scale (the dashed outline).`
+      : `Drag to pan; ${COARSE ? 'pinch' : 'scroll'} to zoom.`;
+    if (R.mode === 'pan' && OV) return `${nav} Tick the tabs to show, and set their opacity, on the right.`;
+    if (R.mode === 'pan') return `${nav} Pick a legend item to start placing.`;
     if (R.mode === 'select') return `${TAP} an item to select it. Drag it to move; drag a white corner to reshape; drag a blue dot to add a corner; ${COARSE ? 'double-tap' : 'Shift+click'} a corner to remove it. ${COARSE ? 'Delete removes the item, Duplicate copies it' : 'Delete removes the item, Ctrl+D copies it'}. Drag a crane's yellow handle to set the reach (double-${tap} the crane to type a value).`;
     const st = STYLE[R.tool], name = itemName(R.tool);
     let how;
@@ -3377,6 +3427,13 @@ function createSitePlan(CFG) {
   }
   function setMode(m) {
     const prev = R.mode;
+    // Calibrate may zoom in on its two points even while the view is held at the print scale (zoomLocked): the view
+    // from before is kept, and put back when Calibrate ends if there is a scale to hold (the new one, or the old)
+    if (m === 'cal' && prev !== 'cal') R.calView = { z: V.z, cx: V.cx, cy: V.cy };
+    else if (prev === 'cal' && m !== 'cal' && R.calView) {
+      if (mpu()) { V.z = R.calView.z; V.cx = R.calView.cx; V.cy = R.calView.cy; dirty(); }
+      R.calView = null;
+    }
     R.mode = m; R.lastTap = null; R.snap = null; R.hover = null; R.zwin = null; // a tap before a mode change never pairs with one after it
     if (m !== 'draw') R.tool = null;
     if (m !== prev || (m !== 'draw' && m !== 'cal')) R.draft = null; // Calibrate took over a half-drawn line's points (review)
@@ -3599,10 +3656,10 @@ function createSitePlan(CFG) {
           <div class="cs-note">Calibrate: pick two points a known distance apart, then type the distance (metres, or add ft). Enter 1:N works for a PDF drawn at full size, e.g. 1:200; 1/8" = 1'-0" is 1:96.</div>
           <h3>SHEET SCALE</h3>
           <select id="cs-sheetscale" title="Scale of the exported 11 x 17 sheet">
-            <option value="auto">Auto: largest standard scale that fits the outline</option>
+            <option value="auto">Auto: standard scale picked by Fit or Selected</option>
             ${FIXED_SCALES.map(([n, t]) => `<option value="${n}">${esc(t)}</option>`).join('')}
           </select>
-          <div class="cs-note">The export prints at this scale, shown in the title block and on the scale bar. It prints what is inside the dashed outline on the drawing (the sheet's shape); outside it is shaded. Auto rounds to a standard scale so all of the outline still prints. Fit puts the whole page inside it; Selected zooms a rectangle you drag into it.</div>
+          <div class="cs-note">The export prints at this scale, shown in the title block and on the scale bar. It prints what is inside the dashed outline on the drawing (the sheet's shape); outside it is shaded. The view is held at this scale, so the outline always fills the window: drag or scroll to move the drawing under it. On Auto, Fit picks the largest standard scale that shows the whole page, and Selected the one for a rectangle you drag.</div>
           <h3>SYMBOL SIZE</h3>
           <select id="cs-symsize" title="How tall symbols print on the sheet. It does not change with the drawing scale or the sheet scale.">
             ${SYM_SIZES.map(([n, t]) => `<option value="${n}">${esc(t)}</option>`).join('')}
@@ -3811,7 +3868,10 @@ function createSitePlan(CFG) {
     const onResize = () => {
       const w = R.map.clientWidth, h = R.map.clientHeight;
       if (w === V.w && h === V.h) return;
+      const held = D.ready && zoomLocked() && V.w && V.h && !R.exporting ? sheetFrame() : null; // the scale printing now
       V.w = w; V.h = h;
+      R.tbInset = null; // the toolbar may wrap differently at the new width: measured again
+      if (held) V.z = (printFrame().w * held.z) / MAP_IN.w; // the same scale in the new window (Auto would round afresh)
       if (R.needFit && D.ready && w && h) { R.needFit = false; restoreView(); }
       dirty();
     };
