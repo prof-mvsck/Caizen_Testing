@@ -216,6 +216,19 @@ button, input, select { font: inherit; color: inherit; }
 .cs-pv-img { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; background: #e6e8eb; border: 1px solid #bbb; padding: 8px; }
 .cs-pv-img img { display: block; max-width: 100%; max-height: calc(100vh - 250px); object-fit: contain; background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, .3); }
 .cs-pv-line { font-size: 12px; color: #333; overflow-wrap: anywhere; }
+/* the keyboard shortcuts list */
+.cs-dlg.cs-info-dlg { width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; gap: 6px; }
+.cs-info-body { overflow-y: auto; min-height: 0; }
+.cs-info-body h4 { margin: 10px 0 3px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; border-bottom: 1.5px solid #111; padding-bottom: 2px; }
+.cs-info-body h4:first-child { margin-top: 0; }
+.cs-info-body table { width: 100%; border-collapse: collapse; }
+.cs-info-body td { padding: 3px 4px; border-bottom: 1px solid #e3e3e3; vertical-align: top; font-size: 12.5px; }
+.cs-info-body td:first-child { width: 44%; white-space: nowrap; }
+.cs-info-body p { margin: 10px 0 0; font-size: 11.5px; color: #555; }
+kbd { display: inline-block; min-width: 1.6em; padding: 1px 5px; border: 1px solid #999; border-bottom-width: 2px; border-radius: 3px; background: #f7f7f7; font: 700 11.5px/1.3 Arial, Helvetica, sans-serif; text-align: center; color: #111; }
+/* Space held: the hand, whatever the tool (app.js, onSpace) */
+.cs-spacepan .cs-map { cursor: grab !important; }
+.cs-spacepan .cs-map.cs-grabbing { cursor: grabbing !important; }
 
 .cs-tabs { display: none; }
 

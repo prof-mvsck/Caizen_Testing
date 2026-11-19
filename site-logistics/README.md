@@ -43,6 +43,23 @@ top row of the screen (where the tabs were), so nothing covers the drawing. On a
 below; on its side, the full height with the toolbar and panel beside it. `layoutSheet` in `app.js` sets the size;
 `styles.css` arranges the panels.
 
+## Keyboard shortcuts (2026-11-19)
+Press **?** (or the **?** button at the end of the toolbar) for this list in the tool; each toolbar button's tooltip
+names its key. A key does just what its button does, and only when the button is showing (the crane keys with a crane
+selected, the text keys with the Text tool or a label selected). Letter keys do nothing while you type in a field.
+Ctrl is Cmd on a Mac.
+
+| Tools | | Edit | | View | | File | |
+|---|---|---|---|---|---|---|---|
+| V | Select | Ctrl+Z | Undo | F | Fit | Ctrl+O | Open a drawing |
+| H | Pan (or hold Space with any tool) | Ctrl+D | Duplicate | Z | Selected (zoom window) | Ctrl+S | Save plan file |
+| P | Polygon | Delete | Delete the selected item | Ctrl+Shift+Minus / Plus | Rotate the page | Ctrl+E | Export image |
+| R | Rect | Shift+Delete | Clear the page (asks) | S | Snap on / off | Ctrl+Shift+E | Export PDF |
+| T | Text label | A | Draw the selected symbol's area | L | Crane setup checklist | Ctrl+P | Print |
+| D | Dimension | C | Crane: pie or circle | | | ? | This list |
+| Enter | Finish a line or area | E | Crane spec | | | | |
+| Esc | Stop / cancel | 1 to 9, [ ], - = | Text colour, turn 15°, size | | | | |
+
 ## Workflow
 1. **Open PDF or image...** (or drop a file on the window, or paste an image).
    **Rotate page** a quarter turn with **⟲ 90°** / **⟳ 90°** in the toolbar, *Rotate page* in the Drawing panel, or

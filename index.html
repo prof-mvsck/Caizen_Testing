@@ -229,6 +229,19 @@ button, input, select { font: inherit; color: inherit; }
 .cs-pv-img { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; background: #e6e8eb; border: 1px solid #bbb; padding: 8px; }
 .cs-pv-img img { display: block; max-width: 100%; max-height: calc(100vh - 250px); object-fit: contain; background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, .3); }
 .cs-pv-line { font-size: 12px; color: #333; overflow-wrap: anywhere; }
+/* the keyboard shortcuts list */
+.cs-dlg.cs-info-dlg { width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; gap: 6px; }
+.cs-info-body { overflow-y: auto; min-height: 0; }
+.cs-info-body h4 { margin: 10px 0 3px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; border-bottom: 1.5px solid #111; padding-bottom: 2px; }
+.cs-info-body h4:first-child { margin-top: 0; }
+.cs-info-body table { width: 100%; border-collapse: collapse; }
+.cs-info-body td { padding: 3px 4px; border-bottom: 1px solid #e3e3e3; vertical-align: top; font-size: 12.5px; }
+.cs-info-body td:first-child { width: 44%; white-space: nowrap; }
+.cs-info-body p { margin: 10px 0 0; font-size: 11.5px; color: #555; }
+kbd { display: inline-block; min-width: 1.6em; padding: 1px 5px; border: 1px solid #999; border-bottom-width: 2px; border-radius: 3px; background: #f7f7f7; font: 700 11.5px/1.3 Arial, Helvetica, sans-serif; text-align: center; color: #111; }
+/* Space held: the hand, whatever the tool (app.js, onSpace) */
+.cs-spacepan .cs-map { cursor: grab !important; }
+.cs-spacepan .cs-map.cs-grabbing { cursor: grabbing !important; }
 
 .cs-tabs { display: none; }
 
@@ -70277,6 +70290,24 @@ function csDialog(message, value, secret) { // secret: the text typed is hidden 
 }
 const csAsk = (message, value, secret) => csDialog(message, value == null ? '' : value, secret);
 const csConfirm = (message) => csDialog(message);
+// A window of information with a Close button (the keyboard shortcuts). html is the app's own, not outside text.
+function csInfo(title, html) {
+  return new Promise((res) => {
+    const back = document.createElement('div');
+    back.className = 'cs-dlg-back';
+    back.innerHTML = `<div class="cs-dlg cs-info-dlg" role="dialog" aria-modal="true" aria-label="${title}"><div class="cs-pv-head"><b>${title}</b></div>` +
+      `<div class="cs-info-body">${html}</div><div class="cs-dlg-btns"><button type="button" class="cs-btn cs-primary" data-x="ok">Close</button></div></div>`;
+    const ok = back.querySelector('[data-x="ok"]'), before = document.activeElement;
+    let closed = false;
+    const done = () => { if (closed) return; closed = true; window.removeEventListener('keydown', onKeys, true); back.remove(); if (before && before.focus) before.focus(); res(); };
+    back.addEventListener('click', (e) => { if (e.target.closest('[data-x]') || e.target === back) done(); });
+    function onKeys(e) { e.stopPropagation(); if (e.key !== 'Tab') e.preventDefault(); if (e.key === 'Escape' || e.key === 'Enter' || e.key === '?') done(); }
+    window.addEventListener('keydown', onKeys, true);
+    ['pointerdown', 'pointerup', 'wheel', 'paste'].forEach((t) => back.addEventListener(t, (e) => e.stopPropagation()));
+    document.body.appendChild(back);
+    ok.focus();
+  });
+}
 // Export and Print show the sheet first, exactly as it will be saved, with what is on it, and save only on Save (user,
 // 2026-11-19: "clicking export/print should trigger a preview pane so we know what is visible as on screen, but as a
 // safety measure to avoid too many copies"). o: { url (the picture), title, sub, lines, ok (the Save button's words) }.
@@ -72171,7 +72202,7 @@ function createSitePlan(CFG) {
     if (R.ptrs.size === 2) { if (R.zwin) R.zwin.a = R.zwin.b = R.zwin.id = null; startPinch(); return; }
     if (R.ptrs.size > 2 || R.pinch) return;
     if (R.zwin && e.button !== 1) { const m = toMap(...p); if (!R.zwin.a) R.zwin.a = m; R.zwin.b = m; R.zwin.id = e.pointerId; dirty(); return; } // a corner of the zoom window, in drawing units (a zoom or pan between the two clicks keeps it)
-    const panOnly = e.button === 1 || R.mode === 'pan';
+    const panOnly = e.button === 1 || R.mode === 'pan' || R.space; // Space held: pan, whatever the tool
     const vh = !panOnly && R.mode === 'select' && R.sel ? e.target.closest('.cs-vh,.cs-vm,.cs-vr,.cs-va,.cs-vo') : null;
     if (vh) { R.drag = dragVertex(e, vh); if (R.drag) Object.assign(R.drag, { id: e.pointerId, x: p[0], y: p[1], touch: e.pointerType === 'touch' }); return; }
     const hitEl = !panOnly && R.mode === 'select' ? e.target.closest('[data-id]') : null, hitIt = hitEl && find(hitEl.dataset.id);
@@ -72921,11 +72952,68 @@ function createSitePlan(CFG) {
   // The top tabs show one plan at a time; an instance sits idle while another tab is showing.
   function offPlan() { return document.body.dataset.plan !== CFG.id; }
   const ROT_KEYS = { Minus: -1, NumpadSubtract: -1, Equal: 1, NumpadAdd: 1 }; // with Ctrl (Cmd) + Shift: a quarter turn
+  // ---------- keyboard shortcuts ----------
+  // A key for every toolbar tool (user, 2026-11-19: "keyboard shortcuts for all the toolbar tools"), mostly the letters
+  // Bluebeam, AutoCAD and drawing programs use. Each presses its toolbar button, so it does just what the button does,
+  // and only when the button is there to press (the crane's with a crane selected, the text style's with the Text tool
+  // or a label). Plain keys work only when no field has the typing; Ctrl is Cmd on a Mac. "?" (or the ? button) lists
+  // them all; the buttons' tooltips name theirs. Hold Space to pan with any tool, as in Bluebeam and Acrobat.
+  const KEY_TOOLS = { v: 'select', h: 'pan', p: 'poly', r: 'rect', t: 'text', d: 'dim', l: 'check', s: 'snap', f: 'fit', z: 'zwin', a: 'mz', c: 'pie', e: 'spec', '[': 'trl', ']': 'trr' };
+  const KEY_LIST = [
+    ['Tools', [['V', 'Select'], ['H', 'Pan (or hold Space with any tool)'], ['P', 'Polygon: areas by their corners'], ['R', 'Rect: areas by two corners'], ['T', 'Text label'], ['D', 'Dimension'], ['Enter', 'Finish the line or area'], ['Esc', 'Stop the tool / cancel']]],
+    ['Edit', [['Ctrl+Z', 'Undo'], ['Ctrl+D', 'Duplicate the selected item'], ['Delete', 'Delete the selected item'], ['Shift+Delete', 'Clear the page (asks first)'], ['A', 'Draw the area of the selected symbol'], ['C', 'Crane: swing pie or full circle'], ['E', 'Crane spec'], ['1 to 9', 'Text colour (Text tool, or a label selected)'], ['[ and ]', 'Turn the text 15°'], ['- and =', 'Text smaller / larger']]],
+    ['View', [['F', 'Fit the page'], ['Z', 'Selected: zoom window'], ['Ctrl+Shift+Minus / Plus', 'Rotate the page left / right'], ['S', 'Snap on / off'], ['L', 'Crane setup checklist']]],
+    ['File', [['Ctrl+O', 'Open a drawing'], ['Ctrl+S', 'Save plan file'], ['Ctrl+E', 'Export image (preview first)'], ['Ctrl+Shift+E', 'Export PDF (preview first)'], ['Ctrl+P', 'Print (preview first)'], ['?', 'This list']]],
+  ];
+  function showKeys() {
+    csInfo('Keyboard shortcuts', KEY_LIST.map(([g, rows]) => `<h4>${esc(g)}</h4><table>${rows.map(([k, w]) => `<tr><td>${k.split(' / ').map((x) => x.split(' and ').map((y) => `<kbd>${esc(y)}</kbd>`).join(' and ')).join(' / ')}</td><td>${esc(w)}</td></tr>`).join('')}</table>`).join('') +
+      '<p>Ctrl is Cmd (⌘) on a Mac. Letter keys do nothing while you are typing in a field.</p>');
+  }
+  const press = (b) => { if (!b || b.disabled || !b.getClientRects().length) return false; b.click(); return true; }; // only a button that is showing
+  function fileKey(e) { // Ctrl+O, S, E, P and ?: before a drawing is open too
+    const mod = (e.ctrlKey || e.metaKey) && !e.altKey, k = (e.key || '').toLowerCase();
+    if (!mod && !e.altKey && e.key === '?') { e.preventDefault(); showKeys(); return true; }
+    if (!mod) return false;
+    if (k === 'o' && !e.shiftKey) { e.preventDefault(); R.fileIn.click(); return true; }
+    const b = k === 's' && !e.shiftKey ? R.savePlanBtn : k === 'e' ? (e.shiftKey ? R.btn.pdf : R.btn.export) : k === 'p' && !e.shiftKey ? R.btn.print : null;
+    if (!b) return false;
+    e.preventDefault(); // not the browser's own Save page, address bar search or Print
+    if (!D.ready) toast('Open a drawing first.', 'err'); else if (!e.repeat) press(b);
+    return true;
+  }
+  function toolKey(e) { // plain keys for the tools; true when one was used
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    const k = (e.key || '').length === 1 ? e.key.toLowerCase() : '';
+    if (!k) return false;
+    if (/^[1-9]$/.test(k)) { if (!e.repeat && press(R.btn.tcol.querySelectorAll('[data-col]')[+k - 1])) { e.preventDefault(); return true; } return false; } // AutoCAD colours 1 to 9
+    if ('-_=+'.includes(k)) { // text size, one step
+      const sel = R.btn.tsize;
+      if (!sel.getClientRects().length) return false;
+      const i = sel.selectedIndex + ('-_'.includes(k) ? -1 : 1);
+      if (i >= 0 && i < sel.options.length) { sel.selectedIndex = i; sel.dispatchEvent(new Event('change')); }
+      e.preventDefault(); return true;
+    }
+    const id = KEY_TOOLS[k];
+    if (!id || (e.shiftKey && /[a-z]/.test(k))) return false;
+    if (e.repeat) { e.preventDefault(); return true; } // held down: once
+    if (press(R.btn[id])) { e.preventDefault(); return true; }
+    return false;
+  }
+  function onSpace(e) { // Space held: any drag pans, whatever the tool (onPointerDown)
+    if (e.code !== 'Space' && e.key !== ' ') return;
+    const t = e.target, down = e.type === 'keydown';
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if (down && (!D.ready || offPlan() || R.exporting)) return;
+    if (down && t && t.tagName === 'BUTTON' && t.blur) t.blur(); // or Space would press the button last clicked
+    e.preventDefault();
+    if (R.space !== down) { R.space = down; R.root.classList.toggle('cs-spacepan', down); }
+  }
   function onKey(e) {
     if (R.exporting) return; // nothing changes while an export runs
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-    if (!D.ready || offPlan()) return;
+    if (offPlan() || fileKey(e)) return;
+    if (!D.ready) return;
     if (e.key === 'Escape' && R.zwin) { R.zwin = null; dirty(); updateUi(); e.preventDefault(); return; } // the zoom window first
     if (e.key === 'Escape') {
       if (R.draft && R.mode === 'draw') R.draft = null;
@@ -72935,6 +73023,7 @@ function createSitePlan(CFG) {
       dirty(); updateUi(); e.preventDefault();
     } else if (e.key === 'Enter' && R.draft && R.mode === 'draw') { finishDraft(); updateUi(); e.preventDefault(); }
     else if (e.key === 'Backspace' && R.draft && R.mode === 'draw') { R.draft.pts.pop(); if (!R.draft.pts.length) R.draft = null; dirty(); updateUi(); e.preventDefault(); }
+    else if (e.key === 'Delete' && e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); if (!e.repeat) press(R.btn.clear); } // Clear, which asks first
     else if ((e.key === 'Delete' || e.key === 'Backspace') && R.sel) { delSel(); updateUi(); e.preventDefault(); }
     // Rotate the page, with Bluebeam's and Acrobat's keys: Ctrl+Shift+Minus left, Ctrl+Shift+Plus right (Cmd on a Mac).
     // By physical key (e.code), so Shift turning = into + or - into _ does not matter; the number pad's - and + work too.
@@ -72942,6 +73031,7 @@ function createSitePlan(CFG) {
     else if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && ROT_KEYS[e.code]) { rotatePage(ROT_KEYS[e.code]); e.preventDefault(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { dupSel(); updateUi(); e.preventDefault(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { undo(); updateUi(); e.preventDefault(); }
+    else toolKey(e);
   }
 
   // ---------- the shared drawing (csShared, above) ----------
@@ -73980,42 +74070,43 @@ function createSitePlan(CFG) {
       <div class="cs-grid">
         <div class="cs-ui cs-tb">
           <div class="cs-btns">
-            <button id="cs-b-pan" title="Pan and zoom the drawing">Pan</button>
-            <button id="cs-b-select" title="Select and move items">Select</button>
+            <button id="cs-b-pan" title="Pan and zoom the drawing (H, or hold Space with any tool)">Pan</button>
+            <button id="cs-b-select" title="Select and move items (V)">Select</button>
             <span class="cs-sep"></span>
-            <button id="cs-b-poly" title="Draw areas as polygons">Polygon</button>
-            <button id="cs-b-rect" title="Draw areas as rectangles">Rect</button>
-            <button id="cs-b-text" title="Place a text label: click where it goes, then type it. Double-click a label in Select mode to change it.">Text</button>
-            <button id="cs-b-dim" title="Dimension: click the two ends, then where the dimension line should sit; the real length is written along it. Hold Shift for a level, plumb or 45° dimension.">Dimension</button>
-            <button id="cs-b-check" style="display:none" title="Crane setup checklist: open or close the side bar of checks for every site and for the city in the site address">Checklist</button>
-            <button id="cs-b-snap" title="Snap: Calibrate, Text and Dimension clicks jump to the drawing's line ends, crossings and middles. Click to turn it off or on.">Snap</button>
+            <button id="cs-b-poly" title="Draw areas as polygons (P)">Polygon</button>
+            <button id="cs-b-rect" title="Draw areas as rectangles (R)">Rect</button>
+            <button id="cs-b-text" title="Place a text label: click where it goes, then type it. Double-click a label in Select mode to change it (T).">Text</button>
+            <button id="cs-b-dim" title="Dimension: click the two ends, then where the dimension line should sit; the real length is written along it. Hold Shift for a level, plumb or 45° dimension (D).">Dimension</button>
+            <button id="cs-b-check" style="display:none" title="Crane setup checklist: open or close the side bar of checks for every site and for the city in the site address (L)">Checklist</button>
+            <button id="cs-b-snap" title="Snap: Calibrate, Text and Dimension clicks jump to the drawing's line ends, crossings and middles. Click to turn it off or on (S).">Snap</button>
             <button id="cs-b-finish" class="cs-go" style="display:none" title="Finish the line or area (Enter)">Finish</button>
             <span class="cs-sep"></span>
             <button id="cs-b-undo" title="Undo (Ctrl+Z)">Undo</button>
             <button id="cs-b-dup" title="Copy the selected item (Ctrl+D)">Duplicate</button>
-            <button id="cs-b-pie" style="display:none" title="Switch the selected crane between a full circle and a swing pie"></button>
-            <button id="cs-b-spec" style="display:none" title="Crane specification: type the supplier's figures for the selected crane (jib, counter-jib, height, load chart). Double-clicking the crane opens it too.">Crane spec</button>
-            <button id="cs-b-mz" style="display:none" title="Draw the area that goes with the selected symbol (rectangle or polygon, per the Polygon/Rect setting)">Draw area</button>
+            <button id="cs-b-pie" style="display:none" title="Switch the selected crane between a full circle and a swing pie (C)"></button>
+            <button id="cs-b-spec" style="display:none" title="Crane specification: type the supplier's figures for the selected crane (jib, counter-jib, height, load chart). Double-clicking the crane opens it too (E).">Crane spec</button>
+            <button id="cs-b-mz" style="display:none" title="Draw the area that goes with the selected symbol (rectangle or polygon, per the Polygon/Rect setting) (A)">Draw area</button>
             <span id="cs-b-tstyle" class="cs-tstyle" style="display:none">
-              <span id="cs-b-tcol" class="cs-acis" title="Text colour, AutoCAD's 9 standard colours: for the selected label, or the next labels placed with the Text tool">${LABEL_ACI.map(([n, hex, name]) => `<button type="button" class="cs-aci" data-col="${hex}" style="background:${hex}" title="${n} ${name}">${n}</button>`).join('')}</span>
-              <button id="cs-b-trl" title="Turn the text 15° anticlockwise">⟲</button>
+              <span id="cs-b-tcol" class="cs-acis" title="Text colour, AutoCAD's 9 standard colours: for the selected label, or the next labels placed with the Text tool (1 to 9)">${LABEL_ACI.map(([n, hex, name]) => `<button type="button" class="cs-aci" data-col="${hex}" style="background:${hex}" title="${n} ${name}">${n}</button>`).join('')}</span>
+              <button id="cs-b-trl" title="Turn the text 15° anticlockwise ([)">⟲</button>
               <label title="Text angle in degrees, anticlockwise (0 = level). For the selected label, or the next labels placed with the Text tool."><input type="number" id="cs-b-trot" min="-180" max="180" step="1" value="0">°</label>
-              <button id="cs-b-trr" title="Turn the text 15° clockwise">⟳</button>
-              <select id="cs-b-tsize" title="Text height on the printed sheet (the height of the capitals, as in CAD): for the selected label, or the next labels placed with the Text tool">${LABEL_HEIGHTS.map(([h, name]) => `<option value="${h}">${name}</option>`).join('')}</select>
+              <button id="cs-b-trr" title="Turn the text 15° clockwise (])">⟳</button>
+              <select id="cs-b-tsize" title="Text height on the printed sheet (the height of the capitals, as in CAD): for the selected label, or the next labels placed with the Text tool (- and =)">${LABEL_HEIGHTS.map(([h, name]) => `<option value="${h}">${name}</option>`).join('')}</select>
             </span>
-            <button id="cs-b-del" title="Delete the selected item">Delete</button>
-            <button id="cs-b-clear" title="Remove everything on this page">Clear</button>
+            <button id="cs-b-del" title="Delete the selected item (Delete)">Delete</button>
+            <button id="cs-b-clear" title="Remove the markup on this page on the shown, unlocked layers; it asks first (Shift+Delete)">Clear</button>
             <span class="cs-sep"></span>
-            <button id="cs-b-fit" title="Fit the whole page inside the print outline">Fit</button>
-            <button id="cs-b-zwin" title="Zoom window, as in AutoCAD: drag a rectangle, or click two corners, and that area fills the print outline. Esc cancels.">Selected</button>
+            <button id="cs-b-fit" title="Fit the whole page inside the print outline (F)">Fit</button>
+            <button id="cs-b-zwin" title="Zoom window, as in AutoCAD: drag a rectangle, or click two corners, and that area fills the print outline. Esc cancels (Z).">Selected</button>
             <button id="cs-b-rotl" title="Rotate the page a quarter turn left (anticlockwise); the markup on every layer turns with it. Ctrl+Shift+Minus (Cmd+Shift+Minus on a Mac), as in Bluebeam and Acrobat.">⟲ 90°</button>
             <button id="cs-b-rotr" title="Rotate the page a quarter turn right (clockwise); the markup on every layer turns with it. Ctrl+Shift+Plus (Cmd+Shift+Plus on a Mac), as in Bluebeam and Acrobat.">⟳ 90°</button>
             <select id="cs-b-scope" style="display:none" title="What the two Export buttons save: every page of the drawing (a PDF with a page each, or a folder of images), or only the page showing. Each page prints the view it was left in; a page never opened prints whole.">
               <option value="all">All pages</option><option value="one">This page</option></select>
-            <button id="cs-b-export" title="Save an 11 x 17 in sheet, with the legend and title block, as an image (200 dpi) in the format picked beside it. With All pages: one image per page, in a folder (or a .zip where the browser cannot write a folder).">Export image</button>
+            <button id="cs-b-export" title="Save an 11 x 17 in sheet, with the legend and title block, as an image (200 dpi) in the format picked beside it. With All pages: one image per page, in a folder (or a .zip where the browser cannot write a folder) (Ctrl+E).">Export image</button>
             <select id="cs-b-fmt" title="Image format for Export image">${IMG_FORMATS.map((f) => `<option value="${f[0]}">${f[1]}</option>`).join('')}</select>
-            <button id="cs-b-pdf" title="Save an 11 x 17 in sheet as PDF (200 dpi). Each markup is a PDF annotation, so it can be selected and edited in Bluebeam Revu. With All pages: one PDF with a sheet for every page.">Export PDF</button>
-            <span class="cs-group"><button id="cs-b-print" title="Save this page (only the page showing, whatever All pages says) as an 11 x 17 in sheet: the PDF, as Export PDF makes it, or the image, in the format picked beside Export image.">Print</button><select id="cs-b-pkind" title="What Print saves: the PDF sheet or the image of it"><option value="pdf">PDF</option><option value="image">Image</option></select></span>
+            <button id="cs-b-pdf" title="Save an 11 x 17 in sheet as PDF (200 dpi). Each markup is a PDF annotation, so it can be selected and edited in Bluebeam Revu. With All pages: one PDF with a sheet for every page (Ctrl+Shift+E).">Export PDF</button>
+            <span class="cs-group"><button id="cs-b-print" title="Save this page (only the page showing, whatever All pages says) as an 11 x 17 in sheet: the PDF, as Export PDF makes it, or the image, in the format picked beside Export image (Ctrl+P).">Print</button><select id="cs-b-pkind" title="What Print saves: the PDF sheet or the image of it"><option value="pdf">PDF</option><option value="image">Image</option></select></span>
+            <button id="cs-b-keys" title="Keyboard shortcuts (?)">?</button>
           </div>
           <div class="cs-hint"></div>
         </div>
@@ -74082,7 +74173,7 @@ function createSitePlan(CFG) {
           <h3>SAVING</h3>
           <div class="cs-note">Markup saves automatically in this browser, separately for each drawing (by file name and size), and the last drawing reopens next time. Clearing the browser's data loses it, so save a plan file to keep or hand over the work.</div>
           <div class="cs-line">
-            <button class="cs-btn" id="cs-saveplan" title="Save the markup, scales and title block of this drawing as a .json file">Save plan file</button>
+            <button class="cs-btn" id="cs-saveplan" title="Save the markup, scales and title block of this drawing as a .json file (Ctrl+S)">Save plan file</button>
             <button class="cs-btn" id="cs-loadplan" title="Load a saved plan file onto the open drawing">Load plan file…</button>
           </div>
         </div>
@@ -74124,7 +74215,7 @@ function createSitePlan(CFG) {
     R.symSel = q('#cs-symsize'); R.symNote = q('#cs-symnote');
     R.savePlanBtn = q('#cs-saveplan'); R.loadPlanBtn = q('#cs-loadplan');
     R.btn = {};
-    ['pan', 'select', 'poly', 'rect', 'text', 'dim', 'check', 'snap', 'finish', 'undo', 'dup', 'pie', 'spec', 'mz', 'tstyle', 'tcol', 'trot', 'trl', 'trr', 'tsize','del', 'clear', 'fit', 'zwin', 'rotl', 'rotr', 'scope', 'export', 'fmt', 'pdf', 'print', 'pkind'].forEach((k) => (R.btn[k] = q('#cs-b-' + k)));
+    ['pan', 'select', 'poly', 'rect', 'text', 'dim', 'check', 'snap', 'finish', 'undo', 'dup', 'pie', 'spec', 'mz', 'tstyle', 'tcol', 'trot', 'trl', 'trr', 'tsize','del', 'clear', 'fit', 'zwin', 'rotl', 'rotr', 'scope', 'export', 'fmt', 'pdf', 'print', 'pkind', 'keys'].forEach((k) => (R.btn[k] = q('#cs-b-' + k)));
 
     root.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => R.fileIn.click()));
     R.fileIn.onchange = () => { const fs = [...(R.fileIn.files || [])]; R.fileIn.value = ''; if (fs.length) openFiles(fs.map((file) => ({ file, path: file.name })), ''); };
@@ -74177,6 +74268,7 @@ function createSitePlan(CFG) {
     }
     B.snap.onclick = () => { csSnap.off = !csSnap.off; try { localStorage.setItem('siteLogistics.snapOff', csSnap.off ? '1' : ''); } catch (e) {} R.snap = null; if (snapOn() && aims()) ensureSnap(); dirty(); updateUi(); };
     B.finish.onclick = () => { finishDraft(); updateUi(); };
+    B.keys.onclick = showKeys;
     B.undo.onclick = () => { undo(); updateUi(); };
     B.spec.onclick = () => { const it = R.sel && find(R.sel); if (!it || !isCrane(it.sym)) return; if (R.specId === it.id) closeSpec(); else openSpec(it); updateUi(); };
     R.spec.addEventListener('input', onSpecInput);
@@ -74247,6 +74339,8 @@ function createSitePlan(CFG) {
     R.map.addEventListener('wheel', onWheel, { passive: false });
     R.map.addEventListener('contextmenu', (e) => { if (D.ready) e.preventDefault(); });
     window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onSpace); window.addEventListener('keyup', onSpace);
+    window.addEventListener('blur', () => { if (R.space) { R.space = false; R.root.classList.remove('cs-spacepan'); } }); // let go elsewhere
     window.addEventListener('keydown', onShift); window.addEventListener('keyup', onShift);
     document.addEventListener('gesturestart', (e) => e.preventDefault()); // Safari: no page zoom while pinching the drawing
 
