@@ -88,9 +88,12 @@ Ctrl is Cmd on a Mac.
 
 ## Workflow
 1. **Open PDF or image...** (or drop a file on the window, or paste an image).
-   **Rotate page** a quarter turn with **⟲ 90°** / **⟳ 90°** in the toolbar, or **Ctrl+Shift+Minus** /
-   **Ctrl+Shift+Plus** (Cmd on a Mac; the keys Bluebeam and Acrobat use). Every layer's markup turns with the page
-   (2026-11-19: toolbar buttons and keys added; the Drawing panel's Rotate page row removed).
+   **Rotate page** a quarter turn with **⟲ 90°** / **⟳ 90°** (Drawing panel, under Display), or **Ctrl+Shift+Minus** /
+   **Ctrl+Shift+Plus** (Cmd on a Mac; the keys Bluebeam and Acrobat use). Every layer's markup turns with the page.
+   **Display** in the Drawing panel holds the view and page controls (2026-11-19: moved there from the toolbar):
+   *Fade the drawing*; *View*: **Fit** (F) and **Selected** (Z, the zoom window); *Rotate page*; and, for a drawing
+   of several pages, *Export*: **All pages** or **This page**, what Export image and Export PDF save. F and Z work
+   even while the Drawing panel is behind another tab on a narrow screen.
    The **Drawing panel** (left) shows titles and controls only: hover a title or a control for what it does
    (2026-11-19: the explanation paragraphs moved into tooltips). A short warning shows under Sheet scale only while the
    drawing has no scale.

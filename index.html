@@ -190,6 +190,9 @@ button, input, select { font: inherit; color: inherit; }
 .cs-btn.cs-on { background: #1a73e8; border-color: #1a73e8; color: #fff; }
 .cs-btn:disabled { opacity: .45; cursor: default; }
 .cs-line { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin: 5px 0; }
+/* Display's rows (View, Rotate page, Export): a name, then its buttons, lined up */
+.cs-line .cs-lbl { flex: 0 0 78px; font-size: 11.5px; color: #444; }
+#cs-scopebox select { flex: 1 1 0; width: auto; min-width: 0; }
 .cs-note { font-size: 11px; color: #444; margin: 4px 0; overflow-wrap: anywhere; }
 .cs-note.cs-strong { color: #111; font-size: 12px; }
 .cs-note.cs-warn { color: #8a3b00; background: #fff4e0; border-left: 3px solid #f7941d; padding: 4px 6px; }
@@ -73293,7 +73296,8 @@ function createSitePlan(CFG) {
     const ids = KEY_TOOLS[k];
     if (!ids || (e.shiftKey && /[a-z]/.test(k))) return false;
     if (e.repeat) { e.preventDefault(); return true; } // held down: once
-    if ([].concat(ids).some((id) => press(R.btn[id]))) { e.preventDefault(); return true; }
+    const always = (id) => (id === 'fit' || id === 'zwin') && D.ready && !R.btn[id].disabled && (R.btn[id].click(), true); // Fit and Selected: also with the Drawing panel behind a tab
+    if ([].concat(ids).some((id) => always(id) || press(R.btn[id]))) { e.preventDefault(); return true; }
     return false;
   }
   function onSpace(e) { // Space held: any drag pans, whatever the tool (onPointerDown)
@@ -74417,7 +74421,7 @@ function createSitePlan(CFG) {
     R.fname.textContent = has ? D.name : 'No drawing open.';
     R.fmeta.textContent = !has ? '' : D.kind === 'pdf' ? `PDF, ${D.pages} page${D.pages > 1 ? 's' : ''}` : D.set ? `${D.pages} image${D.pages > 1 ? 's' : ''}. This one: ${pageName(D.page)}, ${D.w} × ${D.h} px` : `Image, ${D.w} × ${D.h} px`;
     R.pagebox.style.display = has && D.pages > 1 ? '' : 'none';
-    R.btn.scope.style.display = has && D.pages > 1 ? '' : 'none';
+    R.scopeBox.style.display = has && D.pages > 1 ? '' : 'none'; // All pages / This page: for a drawing of several pages
     if (has && D.pages > 1) {
       const listKey = D.key + '|' + D.pages; // the page list: numbers for a PDF, the image names for a set
       if (R.pageSel.dataset.k !== listKey) { R.pageSel.dataset.k = listKey; R.pageSel.innerHTML = Array.from({ length: D.pages }, (_, i) => `<option value="${i + 1}">${i + 1} of ${D.pages}${D.set ? ': ' + esc(pageName(i + 1)) : ''}</option>`).join(''); }
@@ -74528,12 +74532,6 @@ function createSitePlan(CFG) {
             <button id="cs-b-del" title="Delete the selected item (Delete)">Delete</button>
             <button id="cs-b-clear" title="Remove the markup on this page on the shown, unlocked layers; it asks first (Shift+Delete)">Clear</button>
             <span class="cs-sep"></span>
-            <button id="cs-b-fit" title="Fit the whole page inside the print outline (F)">Fit</button>
-            <button id="cs-b-zwin" title="Zoom window, as in AutoCAD: drag a rectangle, or click two corners, and that area fills the print outline. Esc cancels (Z).">Selected</button>
-            <button id="cs-b-rotl" title="Rotate the page a quarter turn left (anticlockwise); the markup on every layer turns with it. Ctrl+Shift+Minus (Cmd+Shift+Minus on a Mac), as in Bluebeam and Acrobat.">⟲ 90°</button>
-            <button id="cs-b-rotr" title="Rotate the page a quarter turn right (clockwise); the markup on every layer turns with it. Ctrl+Shift+Plus (Cmd+Shift+Plus on a Mac), as in Bluebeam and Acrobat.">⟳ 90°</button>
-            <select id="cs-b-scope" style="display:none" title="What the two Export buttons save: every page of the drawing (a PDF with a page each, or a folder of images), or only the page showing. Each page prints the view it was left in; a page never opened prints whole.">
-              <option value="all">All pages</option><option value="one">This page</option></select>
             <button id="cs-b-export" title="Save an 11 x 17 in sheet, with the legend and title block, as an image (200 dpi) in the format picked beside it. With All pages: one image per page, in a folder (or a .zip where the browser cannot write a folder) (Ctrl+E).">Export image</button>
             <select id="cs-b-fmt" title="Image format for Export image">${IMG_FORMATS.map((f) => `<option value="${f[0]}">${f[1]}</option>`).join('')}</select>
             <button id="cs-b-pdf" title="Save an 11 x 17 in sheet as PDF (200 dpi). Each markup is a PDF annotation, so it can be selected and edited in Bluebeam Revu. With All pages: one PDF with a sheet for every page (Ctrl+Shift+E).">Export PDF</button>
@@ -74600,6 +74598,10 @@ function createSitePlan(CFG) {
           </select>
           <h3>DISPLAY</h3>
           <label class="cs-rng"><span>Fade the drawing</span><input type="range" id="cs-fade" min="0" max="0.85" step="0.05" value="0"><b id="cs-fadev">0%</b></label>
+          <!-- the view, the page's turn and what Export saves (user, 2026-11-19: moved here from the toolbar) -->
+          <div class="cs-line"><span class="cs-lbl">View</span><button class="cs-btn" id="cs-b-fit" title="Fit the whole page inside the print outline (F)">Fit</button><button class="cs-btn" id="cs-b-zwin" title="Zoom window, as in AutoCAD: drag a rectangle, or click two corners, and that area fills the print outline. Esc cancels (Z).">Selected</button></div>
+          <div class="cs-line"><span class="cs-lbl">Rotate page</span><button class="cs-btn" id="cs-b-rotl" title="Rotate the page a quarter turn left (anticlockwise); the markup on every layer turns with it. Ctrl+Shift+Minus (Cmd+Shift+Minus on a Mac), as in Bluebeam and Acrobat.">⟲ 90°</button><button class="cs-btn" id="cs-b-rotr" title="Rotate the page a quarter turn right (clockwise); the markup on every layer turns with it. Ctrl+Shift+Plus (Cmd+Shift+Plus on a Mac), as in Bluebeam and Acrobat.">⟳ 90°</button></div>
+          <div class="cs-line" id="cs-scopebox" style="display:none"><span class="cs-lbl">Export</span><select id="cs-b-scope" title="What the two Export buttons save: every page of the drawing (a PDF with a page each, or a folder of images), or only the page showing. Each page prints the view it was left in; a page never opened prints whole."><option value="all">All pages</option><option value="one">This page</option></select></div>
           ${craneNotesPanel()}
           <h3 title="${esc(TIPS.saving)}">SAVING</h3>
           <div class="cs-line">
@@ -74642,7 +74644,7 @@ function createSitePlan(CFG) {
     R.scaleInfo = q('#cs-scaleinfo'); R.calBtn = q('#cs-cal'); R.ratioBtn = q('#cs-ratio'); R.noScaleBtn = q('#cs-noscale');
     R.fadeIn = q('#cs-fade'); R.fadeV = q('#cs-fadev'); R.fileIn = q('#cs-file');
     R.notesEl = q('#cs-notes'); R.sheetSel = q('#cs-sheetscale'); R.planIn = q('#cs-planfile');
-    R.symSel = q('#cs-symsize'); R.sheetWarn = q('#cs-sheetwarn'); R.cnPanel = q('#cs-cnpanel');
+    R.symSel = q('#cs-symsize'); R.scopeBox = q('#cs-scopebox'); R.sheetWarn = q('#cs-sheetwarn'); R.cnPanel = q('#cs-cnpanel');
     R.savePlanBtn = q('#cs-saveplan'); R.loadPlanBtn = q('#cs-loadplan');
     R.ovls = q('.cs-ovls'); R.ovlBox = q('#cs-ovlbox'); R.ovlRows = q('#cs-ovl'); R.ovlAdd = q('#cs-ovl-add');
     R.ovlAdd.onclick = () => { // the nearest page not showing and not laid over yet
