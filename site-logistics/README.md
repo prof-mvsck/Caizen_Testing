@@ -28,6 +28,14 @@ Bluebeam annotations at the overlay opacity, each Subject starting with its tab 
 tools of its own, Text and Dimension; their items belong to the Overlay tab and export with it (a text label is an
 editable text markup in Bluebeam).
 
+## Screen layout (2026-11-19)
+The drawing window always has the shape of the printed sheet's drawing area (the 11 x 17 sheet less its legend
+column and title block), on any screen, so the dashed print outline fills it edge to edge, as on the export. Spare
+width goes to the page-setup column on the left, spare height to the bar at the top. The toolbar has its own bar above
+the sheet, so nothing covers the drawing. On a phone held upright the drawing takes the full width with the panel
+below; on its side, the full height with the toolbar and panel beside it. `layoutSheet` in `app.js` sets the size;
+`styles.css` arranges the panels.
+
 ## Workflow
 1. **Open PDF or image...** (or drop a file on the window, or paste an image).
    **Rotate page** a quarter turn with **⟲ 90°** / **⟳ 90°** in the toolbar, *Rotate page* in the Drawing panel, or

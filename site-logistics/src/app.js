@@ -443,12 +443,44 @@ function createSitePlan(CFG) {
       const tb = R.root.querySelector('.cs-tb');
       if (tb && tb.offsetParent) {
         const a = tb.getBoundingClientRect(), b = R.map.getBoundingClientRect();
-        R.tbInset = Math.max(0, Math.min(V.h * 0.4, a.bottom - b.top + 6));
+        // on the drawing at all (beyond the 2 px border a neighbouring panel shares with it)
+        const over = a.right > b.left + 4 && a.left < b.right - 4 && a.bottom > b.top + 4 && a.top < b.bottom - 4;
+        R.tbInset = over ? Math.max(0, Math.min(V.h * 0.4, a.bottom - b.top + 6)) : 0;
       }
     }
     return R.tbInset || 0;
   }
   const midY = (v) => v.h / 2 + (v === V ? tbInset() / 2 : 0); // where the view's centre is on screen; the export's is its middle
+  // (The toolbar now has a row of its own above the drawing window (layoutSheet), so the inset is 0 there; it stays
+  // in case a layout puts the toolbar over the drawing again.)
+
+  // ---------- the drawing window's shape ----------
+  // The drawing window has the shape of the printed sheet's drawing area (MAP_IN) on any screen, so the print outline
+  // fills it edge to edge, as the export fills its window. The page-setup column takes any spare width, and the row
+  // above the sheet (the toolbar's) any spare height (user, 2026-11-19: "no matter what screen type I open the app on,
+  // the page that will export should be in a locked 11x17 ratio. The tab bar and page setup column can stretch as much
+  // as needed"). The size goes to the grid as --mw and --mh; styles.css arranges the panels for desktop, a phone
+  // upright (the panel below) and a phone on its side (the panel beside).
+  function layoutSheet() {
+    const g = R.grid, tb = R.tbEl;
+    if (!g || !tb) return;
+    const W = g.clientWidth, H = g.clientHeight, r = MAP_IN.w / MAP_IN.h, B = 4; // B: the map's 2 px border, both sides
+    if (!W || !H) return;
+    const side = window.matchMedia && matchMedia('(max-height: 520px) and (min-width: 560px)').matches; // phone on its side
+    const upright = !side && window.matchMedia && matchMedia('(max-width: 820px)').matches;
+    const th = tb.offsetHeight + 6; // the toolbar and the gap under it
+    let ch;
+    if (upright) { // the full width; the panel below keeps at least 160 px
+      const tabs = (R.root.querySelector('.cs-tabs') || {}).offsetHeight || 0;
+      ch = Math.min((W - B) / r, H - th - tabs - 160 - B);
+    } else if (side) ch = Math.min(H - B, (W - 290 - B) / r); // the full height; the toolbar and panel beside keep at least 290 px
+    else ch = Math.min(H - th - 112 - B, (W - 250 - 300 - B) / r); // page setup at least 250, the legend 300, the title block 112
+    ch = Math.max(60, Math.floor(ch));
+    const cw = Math.floor(ch * r); // never wider than the shape, so the outline fills the width and the height to within 1 px
+    const mw = cw + B + 'px', mh = ch + B + 'px';
+    if (g.style.getPropertyValue('--mw') !== mw) g.style.setProperty('--mw', mw);
+    if (g.style.getPropertyValue('--mh') !== mh) g.style.setProperty('--mh', mh);
+  }
   function sheetFrame() {
     const pf = printFrame(), vw = pf.w / V.z, vh = pf.h / V.z, zFit = vw && vh ? Math.min(MAP_IN.w / vw, MAP_IN.h / vh) : 1;
     const m = mpu(), fixed = PLAN && PLAN.sheetScale !== 'auto' ? +PLAN.sheetScale : 0;
@@ -853,8 +885,10 @@ function createSitePlan(CFG) {
   function extentMarkup(fr) {
     if (R.exporting) return '';
     const w = (MAP_IN.w / fr.z) * V.z, h = (MAP_IN.h / fr.z) * V.z, x = V.w / 2 - w / 2, y = midY(V) - h / 2;
-    if (x <= 1 && y <= tbInset() + 1) // larger than the window both ways (a fixed scale): all of the view prints, and more
-      return `<text x="${fmt(V.w - 8)}" y="${fmt(V.h - 8)}" text-anchor="end" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="11.5" fill="#1a73e8" stroke="#fff" stroke-width="4" paint-order="stroke">Prints more than the window at ${esc(scaleName(fr.N))}</text>`;
+    // larger than the window both ways (a fixed scale at the zoom ceiling): all of the view prints, and more. The outline
+    // fills the window exactly as a rule now (holdScale, layoutSheet), so only clearly past its edges counts.
+    if (x < -2 && y < tbInset() - 2)
+      return `<text x="${fmt(V.w - 8)}" y="${fmt(V.h - 8)}" text-anchor="end" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="11.5" fill="#1a73e8" stroke="#fff" stroke-width="4" paint-order="stroke">Prints more than the window${fr.N ? ' at ' + esc(scaleName(fr.N)) : ''}</text>`;
     const r = `M${fmt(x)} ${fmt(y)}h${fmt(w)}v${fmt(h)}h${fmt(-w)}Z`;
     return `<path d="M-10 -10H${V.w + 10}V${V.h + 10}H-10Z${r}" fill="#1b2433" fill-opacity=".14" fill-rule="evenodd"/>` +
       `<path d="${r}" fill="none" stroke="#1a73e8" stroke-width="1.5" stroke-dasharray="7 4"/>` +
@@ -876,7 +910,7 @@ function createSitePlan(CFG) {
     R.root.classList.toggle('cs-has-doc', D.ready);
     if (!D.ready) { R.layer.innerHTML = ''; R.scaleEl.textContent = '-'; R.notesEl.textContent = notesText({}).join('\n'); return; }
     if (!R.exporting) holdScale(); // a scale set, Fit, Selected, a resize, a page shown: back to the print scale
-    if (R.hintLock !== zoomLocked()) { R.hintLock = zoomLocked(); R.hintEl.textContent = hintText(); } // "scroll to zoom" or not
+    if (R.hintLock !== zoomLocked()) { R.hintLock = zoomLocked(); R.hintEl.textContent = R.hintEl.title = hintText(); } // "scroll to zoom" or not
     const [tx, ty] = toScreen(0, 0);
     R.page.style.transform = `translate(${tx}px, ${ty}px) scale(${V.z})`;
     const fs = R.frame.style;
@@ -3460,7 +3494,7 @@ function createSitePlan(CFG) {
     on(R.btn.text, R.mode === 'draw' && R.tool === '_text'); on(R.btn.dim, R.mode === 'draw' && R.tool === '_dim');
     on(R.calBtn, R.mode === 'cal'); on(R.btn.snap, snapOn());
     R.root.querySelectorAll('.cs-row').forEach((r) => r.classList.toggle('cs-active', R.mode === 'draw' && r.dataset.sym === R.tool));
-    R.hintEl.textContent = hintText();
+    R.hintEl.textContent = R.hintEl.title = hintText(); // one line on a desktop: the whole of it as its tooltip
     const sel = R.mode === 'select' && R.sel && find(R.sel);
     const cr = sel && isCrane(sel.sym) ? sel : null;
     R.btn.pie.style.display = cr ? '' : 'none';
@@ -3571,6 +3605,47 @@ function createSitePlan(CFG) {
     const root = CFG.root;
     root.innerHTML = `
       <div class="cs-grid">
+        <div class="cs-ui cs-tb">
+          <div class="cs-btns">
+            <button id="cs-b-pan" title="Pan and zoom the drawing">Pan</button>
+            <button id="cs-b-select" title="Select and move items">Select</button>
+            <span class="cs-sep"></span>
+            <button id="cs-b-poly" title="Draw areas as polygons">Polygon</button>
+            <button id="cs-b-rect" title="Draw areas as rectangles">Rect</button>
+            <button id="cs-b-text" title="Place a text label: click where it goes, then type it. Double-click a label in Select mode to change it.">Text</button>
+            <button id="cs-b-dim" title="Dimension: click the two ends, then where the dimension line should sit; the real length is written along it. Hold Shift for a level, plumb or 45° dimension.">Dimension</button>
+            <button id="cs-b-check" style="display:none" title="Crane setup checklist: open or close the side bar of checks for every site and for the city in the site address">Checklist</button>
+            <button id="cs-b-snap" title="Snap: Calibrate, Text and Dimension clicks jump to the drawing's line ends, crossings and middles. Click to turn it off or on.">Snap</button>
+            <button id="cs-b-finish" class="cs-go" style="display:none" title="Finish the line or area (Enter)">Finish</button>
+            <span class="cs-sep"></span>
+            <button id="cs-b-undo" title="Undo (Ctrl+Z)">Undo</button>
+            <button id="cs-b-dup" title="Copy the selected item (Ctrl+D)">Duplicate</button>
+            <button id="cs-b-pie" style="display:none" title="Switch the selected crane between a full circle and a swing pie"></button>
+            <button id="cs-b-spec" style="display:none" title="Crane specification: type the supplier's figures for the selected crane (jib, counter-jib, height, load chart). Double-clicking the crane opens it too.">Crane spec</button>
+            <button id="cs-b-mz" style="display:none" title="Draw the area that goes with the selected symbol (rectangle or polygon, per the Polygon/Rect setting)">Draw area</button>
+            <span id="cs-b-tstyle" class="cs-tstyle" style="display:none">
+              <span id="cs-b-tcol" class="cs-acis" title="Text colour, AutoCAD's 9 standard colours: for the selected label, or the next labels placed with the Text tool">${LABEL_ACI.map(([n, hex, name]) => `<button type="button" class="cs-aci" data-col="${hex}" style="background:${hex}" title="${n} ${name}">${n}</button>`).join('')}</span>
+              <button id="cs-b-trl" title="Turn the text 15° anticlockwise">⟲</button>
+              <label title="Text angle in degrees, anticlockwise (0 = level). For the selected label, or the next labels placed with the Text tool."><input type="number" id="cs-b-trot" min="-180" max="180" step="1" value="0">°</label>
+              <button id="cs-b-trr" title="Turn the text 15° clockwise">⟳</button>
+              <select id="cs-b-tsize" title="Text height on the printed sheet (the height of the capitals, as in CAD): for the selected label, or the next labels placed with the Text tool">${LABEL_HEIGHTS.map(([h, name]) => `<option value="${h}">${name}</option>`).join('')}</select>
+            </span>
+            <button id="cs-b-del" title="Delete the selected item">Delete</button>
+            <button id="cs-b-clear" title="Remove everything on this page">Clear</button>
+            <span class="cs-sep"></span>
+            <button id="cs-b-fit" title="Fit the whole page inside the print outline">Fit</button>
+            <button id="cs-b-zwin" title="Zoom window, as in AutoCAD: drag a rectangle, or click two corners, and that area fills the print outline. Esc cancels.">Selected</button>
+            <button id="cs-b-rotl" title="Rotate the page a quarter turn left (anticlockwise), on every tab; the markup turns with it. Ctrl+Shift+Minus (Cmd+Shift+Minus on a Mac), as in Bluebeam and Acrobat.">⟲ 90°</button>
+            <button id="cs-b-rotr" title="Rotate the page a quarter turn right (clockwise), on every tab; the markup turns with it. Ctrl+Shift+Plus (Cmd+Shift+Plus on a Mac), as in Bluebeam and Acrobat.">⟳ 90°</button>
+            <select id="cs-b-scope" style="display:none" title="What the two Export buttons save: every page of the drawing (a PDF with a page each, or a folder of images), or only the page showing. Each page prints the view it was left in; a page never opened prints whole.">
+              <option value="all">All pages</option><option value="one">This page</option></select>
+            <button id="cs-b-export" title="Save an 11 x 17 in sheet, with the legend and title block, as an image (200 dpi) in the format picked beside it. With All pages: one image per page, in a folder (or a .zip where the browser cannot write a folder).">Export image</button>
+            <select id="cs-b-fmt" title="Image format for Export image">${IMG_FORMATS.map((f) => `<option value="${f[0]}">${f[1]}</option>`).join('')}</select>
+            <button id="cs-b-pdf" title="Save an 11 x 17 in sheet as PDF (200 dpi). Each markup is a PDF annotation, so it can be selected and edited in Bluebeam Revu. With All pages: one PDF with a sheet for every page.">Export PDF</button>
+            <span class="cs-group"><button id="cs-b-print" title="Save this page (only the page showing, whatever All pages says) as an 11 x 17 in sheet: the PDF, as Export PDF makes it, or the image, in the format picked beside Export image.">Print</button><select id="cs-b-pkind" title="What Print saves: the PDF sheet or the image of it"><option value="pdf">PDF</option><option value="image">Image</option></select></span>
+          </div>
+          <div class="cs-hint"></div>
+        </div>
         <div class="cs-map">
           <div class="cs-frame"></div>
           <div class="cs-page"><div class="cs-fade"></div></div>
@@ -3580,47 +3655,6 @@ function createSitePlan(CFG) {
             <button class="cs-ui" data-open>Open PDF, images or .zip…</button>
             <button class="cs-ui" data-open-dir>Open a folder of images…</button>
             <div class="cs-empty-s">${COARSE ? '' : 'You can also drop a file or a folder here, or paste an image. '}The drawing shows on every tab; markup is kept in this browser, separately for each drawing and tab.</div>
-          </div>
-          <div class="cs-ui cs-tb">
-            <div class="cs-btns">
-              <button id="cs-b-pan" title="Pan and zoom the drawing">Pan</button>
-              <button id="cs-b-select" title="Select and move items">Select</button>
-              <span class="cs-sep"></span>
-              <button id="cs-b-poly" title="Draw areas as polygons">Polygon</button>
-              <button id="cs-b-rect" title="Draw areas as rectangles">Rect</button>
-              <button id="cs-b-text" title="Place a text label: click where it goes, then type it. Double-click a label in Select mode to change it.">Text</button>
-              <button id="cs-b-dim" title="Dimension: click the two ends, then where the dimension line should sit; the real length is written along it. Hold Shift for a level, plumb or 45° dimension.">Dimension</button>
-              <button id="cs-b-check" style="display:none" title="Crane setup checklist: open or close the side bar of checks for every site and for the city in the site address">Checklist</button>
-              <button id="cs-b-snap" title="Snap: Calibrate, Text and Dimension clicks jump to the drawing's line ends, crossings and middles. Click to turn it off or on.">Snap</button>
-              <button id="cs-b-finish" class="cs-go" style="display:none" title="Finish the line or area (Enter)">Finish</button>
-              <span class="cs-sep"></span>
-              <button id="cs-b-undo" title="Undo (Ctrl+Z)">Undo</button>
-              <button id="cs-b-dup" title="Copy the selected item (Ctrl+D)">Duplicate</button>
-              <button id="cs-b-pie" style="display:none" title="Switch the selected crane between a full circle and a swing pie"></button>
-              <button id="cs-b-spec" style="display:none" title="Crane specification: type the supplier's figures for the selected crane (jib, counter-jib, height, load chart). Double-clicking the crane opens it too.">Crane spec</button>
-              <button id="cs-b-mz" style="display:none" title="Draw the area that goes with the selected symbol (rectangle or polygon, per the Polygon/Rect setting)">Draw area</button>
-              <span id="cs-b-tstyle" class="cs-tstyle" style="display:none">
-                <span id="cs-b-tcol" class="cs-acis" title="Text colour, AutoCAD's 9 standard colours: for the selected label, or the next labels placed with the Text tool">${LABEL_ACI.map(([n, hex, name]) => `<button type="button" class="cs-aci" data-col="${hex}" style="background:${hex}" title="${n} ${name}">${n}</button>`).join('')}</span>
-                <button id="cs-b-trl" title="Turn the text 15° anticlockwise">⟲</button>
-                <label title="Text angle in degrees, anticlockwise (0 = level). For the selected label, or the next labels placed with the Text tool."><input type="number" id="cs-b-trot" min="-180" max="180" step="1" value="0">°</label>
-                <button id="cs-b-trr" title="Turn the text 15° clockwise">⟳</button>
-                <select id="cs-b-tsize" title="Text height on the printed sheet (the height of the capitals, as in CAD): for the selected label, or the next labels placed with the Text tool">${LABEL_HEIGHTS.map(([h, name]) => `<option value="${h}">${name}</option>`).join('')}</select>
-              </span>
-              <button id="cs-b-del" title="Delete the selected item">Delete</button>
-              <button id="cs-b-clear" title="Remove everything on this page">Clear</button>
-              <span class="cs-sep"></span>
-              <button id="cs-b-fit" title="Fit the whole page inside the print outline">Fit</button>
-              <button id="cs-b-zwin" title="Zoom window, as in AutoCAD: drag a rectangle, or click two corners, and that area fills the print outline. Esc cancels.">Selected</button>
-              <button id="cs-b-rotl" title="Rotate the page a quarter turn left (anticlockwise), on every tab; the markup turns with it. Ctrl+Shift+Minus (Cmd+Shift+Minus on a Mac), as in Bluebeam and Acrobat.">⟲ 90°</button>
-              <button id="cs-b-rotr" title="Rotate the page a quarter turn right (clockwise), on every tab; the markup turns with it. Ctrl+Shift+Plus (Cmd+Shift+Plus on a Mac), as in Bluebeam and Acrobat.">⟳ 90°</button>
-              <select id="cs-b-scope" style="display:none" title="What the two Export buttons save: every page of the drawing (a PDF with a page each, or a folder of images), or only the page showing. Each page prints the view it was left in; a page never opened prints whole.">
-                <option value="all">All pages</option><option value="one">This page</option></select>
-              <button id="cs-b-export" title="Save an 11 x 17 in sheet, with the legend and title block, as an image (200 dpi) in the format picked beside it. With All pages: one image per page, in a folder (or a .zip where the browser cannot write a folder).">Export image</button>
-              <select id="cs-b-fmt" title="Image format for Export image">${IMG_FORMATS.map((f) => `<option value="${f[0]}">${f[1]}</option>`).join('')}</select>
-              <button id="cs-b-pdf" title="Save an 11 x 17 in sheet as PDF (200 dpi). Each markup is a PDF annotation, so it can be selected and edited in Bluebeam Revu. With All pages: one PDF with a sheet for every page.">Export PDF</button>
-              <span class="cs-group"><button id="cs-b-print" title="Save this page (only the page showing, whatever All pages says) as an 11 x 17 in sheet: the PDF, as Export PDF makes it, or the image, in the format picked beside Export image.">Print</button><select id="cs-b-pkind" title="What Print saves: the PDF sheet or the image of it"><option value="pdf">PDF</option><option value="image">Image</option></select></span>
-            </div>
-            <div class="cs-hint"></div>
           </div>
           <div class="cs-sb"><div class="cs-sblabel">0</div><div class="cs-bar"></div></div>
           <div class="cs-cnotes"></div>
@@ -3875,6 +3909,11 @@ function createSitePlan(CFG) {
       if (R.needFit && D.ready && w && h) { R.needFit = false; restoreView(); }
       dirty();
     };
+    // the drawing window's size follows the space for the sheet (the grid) and the toolbar's height, not the reverse
+    R.grid = R.root.querySelector('.cs-grid'); R.tbEl = R.root.querySelector('.cs-tb');
+    if (window.ResizeObserver) { const ro = new ResizeObserver(layoutSheet); ro.observe(R.grid); ro.observe(R.tbEl); }
+    window.addEventListener('resize', layoutSheet);
+    layoutSheet();
     if (window.ResizeObserver) new ResizeObserver(onResize).observe(R.map);
     window.addEventListener('resize', onResize);
     onResize();
