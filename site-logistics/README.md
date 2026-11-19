@@ -21,8 +21,21 @@ All layers show on the drawing together; the last in the list draws on top.
   turn it with the drawing. Kept with the plan.
 - Click a layer's name to **drop down its symbols and hatches**; pick one to place it on that layer. The layer being
   worked on (the tool in hand, or the selected item) is marked in blue. Picking a symbol of a hidden layer shows it.
-- **Notes** holds the text labels and dimensions. **Text** and **Dimension** are in the toolbar for every layer and
-  place their items on Notes (a text label is an editable text markup in Bluebeam).
+- **Notes** holds the text labels, dimensions and shapes. **Text**, **Dimension**, **Box**, **Circle** and **Cloud**
+  are in the toolbar for every layer and place their items on Notes (a text label is an editable text markup in
+  Bluebeam). Notes is never listed in the exported legend: its items speak for themselves.
+- **Shapes** (2026-11-19): **Box** (B), **Circle** (O) and **Cloud** (K) draw outlines in the same 9 colours as text
+  (1 to 9, or the swatches in the toolbar while a shape tool is in hand or a shape is selected; shapes keep their own
+  colour apart from the labels'). Click two opposite corners; hold Shift for a square or a true circle. A Cloud
+  follows Polygon / Rect: two corners, or corner by corner with Enter to close. Only a shape's outline takes a click,
+  so what it rings can still be picked. Dragging a corner of a Box or Circle resizes it (the opposite corner stays;
+  it stays a box); a Cloud's corners reshape like an area's. In the PDF they are Revu's own Rectangle, Ellipse and
+  Cloud markups (Square, Circle, and a Polygon with the cloudy border), editable there.
+- **Site Trailer** (Site Mobilization legend, 2026-11-19): a black rectangle at its real size, so it needs the drawing
+  scale. Click where its centre goes; it is placed at 40' x 10' to start, and after that at the size and angle last
+  typed. Select it and press **Trailer size** (E), or double-click it, to type its length and width in metres
+  (`12.2`, `12.2 m`, `12200 mm`) or feet and inches (`40'`, `40 ft`, `40'-6"`) and its angle (degrees anticlockwise).
+  Its size is written above it while selected, and it keeps its real size if the drawing scale is changed.
 - One title block, sheet scale, symbol size and drawing title for the whole sheet; the title is typed
   (SITE LOGISTICS PLAN to start).
 - `src/plans.js` lists the layers and, per layer, the legend headings and symbol ids (picked from the symbol
@@ -56,7 +69,7 @@ showing alone**; the preview says which pages were laid over on screen only.
 ## Keyboard shortcuts (2026-11-19)
 Press **?** (or the **?** button at the end of the toolbar) for this list in the tool; each toolbar button's tooltip
 names its key. A key does just what its button does, and only when the button is showing (the crane keys with a crane
-selected, the text keys with the Text tool or a label selected). Letter keys do nothing while you type in a field.
+selected, the text keys with the Text tool or a label selected, the colour keys with a shape tool or a shape too). Letter keys do nothing while you type in a field.
 Ctrl is Cmd on a Mac.
 
 | Tools | | Edit | | View | | File | |
@@ -67,8 +80,11 @@ Ctrl is Cmd on a Mac.
 | R | Rect | Shift+Delete | Clear the page (asks) | S | Snap on / off | Ctrl+Shift+E | Export PDF |
 | T | Text label | A | Draw the selected symbol's area | L | Crane setup checklist | Ctrl+P | Print |
 | D | Dimension | C | Crane: pie or circle | | | ? | This list |
-| Enter | Finish a line or area | E | Crane spec | | | | |
-| Esc | Stop / cancel | 1 to 9, [ ], - = | Text colour, turn 15°, size | | | | |
+| B | Box (Notes) | E | Crane spec / Trailer size | | | | |
+| O | Circle (Notes) | 1 to 9 | Text or shape colour | | | | |
+| K | Cloud (Notes) | [ ], - = | Text: turn 15°, size | | | | |
+| Enter | Finish a line or area | | | | | | |
+| Esc | Stop / cancel | | | | | | |
 
 ## Workflow
 1. **Open PDF or image...** (or drop a file on the window, or paste an image).

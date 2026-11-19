@@ -218,6 +218,10 @@ button, input, select { font: inherit; color: inherit; }
 .cs-dlg { width: min(420px, 100%); background: #fff; border: 1.5px solid #111; padding: 14px; box-shadow: 0 8px 30px rgba(0, 0, 0, .35); }
 .cs-dlg-msg { margin-bottom: 10px; overflow-wrap: anywhere; }
 .cs-dlg-in { width: 100%; font: 16px Arial, Helvetica, sans-serif; padding: 6px 8px; border: 1px solid #111; border-radius: 2px; margin-bottom: 12px; }
+/* a dialog of several fields (a site trailer's length, width and angle): each with its name beside it */
+.cs-dlg-f { display: flex; align-items: baseline; gap: 8px; }
+.cs-dlg-f > span { flex: 0 0 74px; font-size: 13px; }
+.cs-dlg-f .cs-dlg-in { flex: 1 1 auto; min-width: 0; margin-bottom: 8px; }
 .cs-dlg-btns { display: flex; justify-content: flex-end; gap: 6px; }
 .cs-dlg-btns .cs-btn { padding: 6px 14px; font-size: 13px; }
 /* the export's preview: the sheet as it will be saved, what is on it, and Save or Cancel */

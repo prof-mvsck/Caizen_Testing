@@ -231,6 +231,10 @@ button, input, select { font: inherit; color: inherit; }
 .cs-dlg { width: min(420px, 100%); background: #fff; border: 1.5px solid #111; padding: 14px; box-shadow: 0 8px 30px rgba(0, 0, 0, .35); }
 .cs-dlg-msg { margin-bottom: 10px; overflow-wrap: anywhere; }
 .cs-dlg-in { width: 100%; font: 16px Arial, Helvetica, sans-serif; padding: 6px 8px; border: 1px solid #111; border-radius: 2px; margin-bottom: 12px; }
+/* a dialog of several fields (a site trailer's length, width and angle): each with its name beside it */
+.cs-dlg-f { display: flex; align-items: baseline; gap: 8px; }
+.cs-dlg-f > span { flex: 0 0 74px; font-size: 13px; }
+.cs-dlg-f .cs-dlg-in { flex: 1 1 auto; min-width: 0; margin-bottom: 8px; }
 .cs-dlg-btns { display: flex; justify-content: flex-end; gap: 6px; }
 .cs-dlg-btns .cs-btn { padding: 6px 14px; font-size: 13px; }
 /* the export's preview: the sheet as it will be saved, what is on it, and Save or Cancel */
@@ -390,6 +394,7 @@ window.__CS_SYMBOLS = (window.__CS_SYMBOLS || []).concat([{"title":"TRAFFIC CONT
  * - Slick Line: the concrete pump's pipe run, a grey line with pipe joints. A line; app.js draws it (STYLE 'slick-line').
  * - Forklift Staging: where forklifts park between lifts, an orange cross-hatched area (STYLE 'forklift-staging').
  * - Placing Boom: a fixed concrete placing boom, in EQUIPMENT after the pump truck. It has a reach circle like the cranes.
+ * - Site Trailer: a black rectangle at its real size, typed in (STYLE 'site-trailer'), after Trade Partner Trailers Area.
  * Wayfinding tab ("only" keeps these off the other tabs; plans.js lists them):
  * - sign boards that say where things are, as the book's General Signage plan asks: blue for information, green for
  *   first aid and muster, red for no entry; four direction arrows; and a Wayfinding Route line (STYLE 'wf-route').
@@ -407,6 +412,13 @@ window.__CS_SYMBOLS = (window.__CS_SYMBOLS || []).concat([{"title":"TRAFFIC CONT
       { id: 'forklift-staging', label: 'Forklift Staging', vb: '0 0 112 26', w: 112, h: 26,
         inner: `<defs><pattern id="sw-fork-x" patternUnits="userSpaceOnUse" width="6" height="6"><path d="M0 0L6 6M6 0L0 6" stroke="${ORANGE}" stroke-width="1" fill="none"/></pattern></defs>` +
           `<rect x="1.5" y="1.5" width="109" height="23" fill="url(#sw-fork-x)" stroke="${ORANGE}" stroke-width="2"/>` });
+  }
+  // Site Trailer (2026-11-19): a black rectangle drawn at its real size (STYLE 'site-trailer' in app.js), after the
+  // Trade Partner Trailers Area
+  if (legend && !legend.items.some((i) => i.id === 'site-trailer')) {
+    const at = legend.items.findIndex((i) => i.id === 'trailers');
+    legend.items.splice(at >= 0 ? at + 1 : legend.items.length, 0,
+      { id: 'site-trailer', label: 'Site Trailer', vb: '0 0 112 26', w: 112, h: 26, inner: `<rect x="6" y="5" width="100" height="16" fill="${K}"/>` });
   }
   const eq = S.find((s) => s.title === 'EQUIPMENT');
   if (eq && !eq.items.some((i) => i.id === 'placing-boom')) {
@@ -70271,17 +70283,19 @@ AFcAWABZAFoAWwBcAF0ETlVMTAAAAAAB//8AAg==
 // places the file runs (an embedded browser pane, for one) do not allow those, and there the scale could not be set.
 // csAsk resolves to the text typed, or null if cancelled; csConfirm to true or false.
 function csDialog(message, value, secret) { // secret: the text typed is hidden (a password)
+  // value: the field's starting text; or a list of [label, text], one field each (it resolves to their texts, in order)
   return new Promise((res) => {
-    const input = value !== undefined;
+    const input = value !== undefined, many = Array.isArray(value);
     const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const back = document.createElement('div');
     back.className = 'cs-dlg-back';
     back.innerHTML = `<div class="cs-dlg" role="dialog" aria-modal="true"><div class="cs-dlg-msg">${esc(message)}</div>` +
-      (input ? `<input class="cs-dlg-in" type="${secret ? 'password' : 'text'}" spellcheck="false" autocomplete="off">` : '') +
+      (!input ? '' : many ? value.map(([label]) => `<label class="cs-dlg-f"><span>${esc(label)}</span><input class="cs-dlg-in" type="text" spellcheck="false" autocomplete="off"></label>`).join('')
+        : `<input class="cs-dlg-in" type="${secret ? 'password' : 'text'}" spellcheck="false" autocomplete="off">`) +
       '<div class="cs-dlg-btns"><button type="button" class="cs-btn" data-x="cancel">Cancel</button><button type="button" class="cs-btn cs-primary" data-x="ok">OK</button></div></div>';
-    const inp = back.querySelector('.cs-dlg-in'), ok = back.querySelector('[data-x="ok"]'), before = document.activeElement;
+    const ins = [...back.querySelectorAll('.cs-dlg-in')], inp = ins[0], ok = back.querySelector('[data-x="ok"]'), before = document.activeElement;
     let closed = false;
-    const done = (yes) => { if (closed) return; closed = true; window.removeEventListener('keydown', onKeys, true); back.remove(); if (before && before.focus) before.focus(); res(input ? (yes ? inp.value : null) : yes); };
+    const done = (yes) => { if (closed) return; closed = true; window.removeEventListener('keydown', onKeys, true); back.remove(); if (before && before.focus) before.focus(); res(input ? (yes ? (many ? ins.map((i) => i.value) : inp.value) : null) : yes); };
     back.addEventListener('click', (e) => { const b = e.target.closest('[data-x]'); if (b) done(b.dataset.x === 'ok'); });
     // Every key goes to the dialog while it is open, wherever the focus is: caught on the window before anything else, so
     // a key pressed after clicking the dialog's text or the dimmed page never reaches the drawing behind it (Backspace
@@ -70301,7 +70315,9 @@ function csDialog(message, value, secret) { // secret: the text typed is hidden 
     window.addEventListener('keydown', onKeys, true);
     ['pointerdown', 'pointerup', 'wheel', 'paste'].forEach((t) => back.addEventListener(t, (e) => e.stopPropagation()));
     document.body.appendChild(back);
-    if (inp) { inp.value = value == null ? '' : String(value); inp.focus(); inp.select(); } else ok.focus();
+    if (many) ins.forEach((el, i) => { el.value = value[i][1] == null ? '' : String(value[i][1]); });
+    else if (inp) inp.value = value == null ? '' : String(value);
+    if (inp) { inp.focus(); inp.select(); } else ok.focus();
   });
 }
 const csAsk = (message, value, secret) => csDialog(message, value == null ? '' : value, secret);
@@ -70429,18 +70445,23 @@ function createSitePlan(CFG) {
   const sectionsOf = (c) => (c.sections
     ? c.sections.map((s) => ({ title: s.title, items: s.ids.map((id) => SYM[id]).filter(Boolean) })).filter((s) => s.items.length)
     : ALL_SECTIONS.filter((s) => !s.only && !(c.omit || []).includes(s.title))); // `only`: a section that belongs to one layer's legend; `omit`: sections moved to another layer
-  const NOTE_ROWS = [ // the notes layer's two "symbols": the Text and Dimension tools, drawn as legend rows
+  const NOTE_ROWS = [ // the notes layer's "symbols": the Text, Dimension, Box, Circle and Cloud tools, drawn as legend rows
     { id: '_text', label: 'Text label', vb: '0 0 60 20', inner: '<text x="30" y="15" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="14" fill="#111">Aa</text>' },
     { id: '_dim', label: 'Dimension', vb: '0 0 60 20', inner: '<path d="M6 14H54M6 9V18M54 9V18" fill="none" stroke="#111" stroke-width="1.5"/><text x="30" y="10" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="8" fill="#111">5.0 m</text>' },
+    // the shapes (user, 2026-11-19): outlines in the text colours, on this layer; they speak for themselves on the sheet
+    { id: '_box', label: 'Box', vb: '0 0 60 20', inner: '<rect x="8" y="3" width="44" height="14" fill="none" stroke="#111" stroke-width="1.8"/>' },
+    { id: '_ellipse', label: 'Circle', vb: '0 0 60 20', inner: '<ellipse cx="30" cy="10" rx="21" ry="7.5" fill="none" stroke="#111" stroke-width="1.8"/>' },
+    { id: '_cloud', label: 'Cloud', vb: '0 0 60 20', inner: '<path d="M10 4a4 4 0 0 1 8 0a4 4 0 0 1 8 0a4 4 0 0 1 8 0a4 4 0 0 1 8 0a4 4 0 0 1 8 0a3 3 0 0 1 0 6a3 3 0 0 1 0 6a4 4 0 0 1 -8 0a4 4 0 0 1 -8 0a4 4 0 0 1 -8 0a4 4 0 0 1 -8 0a4 4 0 0 1 -8 0a3 3 0 0 1 0 -6a3 3 0 0 1 0 -6Z" fill="none" stroke="#111" stroke-width="1.5" stroke-linejoin="round"/>' },
   ];
   const LAYERS = (CFG.layers || [{ id: CFG.id, label: CFG.label, sheetTitle: CFG.sheetTitle, sections: CFG.sections, omit: CFG.omit }])
     .map((c) => ({ id: c.id, label: c.label, notes: !!c.notes, sections: c.notes ? [{ title: c.label.toUpperCase(), items: NOTE_ROWS }] : sectionsOf(c) }));
   const LAYER = {}; LAYERS.forEach((l) => (LAYER[l.id] = l));
-  const NOTES = (LAYERS.find((l) => l.notes) || LAYERS[LAYERS.length - 1]).id; // where text labels and dimensions go
+  const NOTES = (LAYERS.find((l) => l.notes) || LAYERS[LAYERS.length - 1]).id; // where text labels, dimensions and shapes go
+  const NOTE_IDS = NOTE_ROWS.map((r) => r.id);
   const SECTIONS = LAYERS.filter((l) => !l.notes).flatMap((l) => l.sections); // every symbol any layer lists
   // the layer a symbol belongs to when an item does not say (markup from before the layers, a plan file from a tab)
   const homeLayer = (sym) => {
-    if (sym === '_text' || sym === '_dim') return NOTES;
+    if (NOTE_IDS.includes(sym)) return NOTES;
     const s = ZONE_SYM[sym] || sym, l = LAYERS.find((x) => !x.notes && x.sections.some((sec) => sec.items.some((i) => i.id === s)));
     return (l || LAYERS[0]).id;
   };
@@ -70486,6 +70507,17 @@ function createSitePlan(CFG) {
     'ss-walk-lights':  { kind: 'line', color: '#808080', width: 2, tracks: true }, // Covered Walkway w/ Temp Lights, as the Elevate toolbox draws it
     'ss-covered-walk': { kind: 'area', fill: COL.gray },                 // like the Laydown Area, in grey
     'ss-crosswalk':    { kind: 'area', fill: '#66ccff', feet: '#fff' },  // like the Pedestrian path, in the 6' fencing's light blue
+    // the notes layer's shapes (user, 2026-11-19: "annotating shapes, basic ones like rectangles, circles and clouds, in the
+    // same colours as text, that stay in the notes layer"): an outline in the item's colour (it.color, one of the text
+    // colours; none: black), drawn by two opposite corners. Box and Circle are always a box of 4 corners (the circle is
+    // the ellipse inside it); a Cloud is any polygon, by two corners (Rect) or corner by corner (Polygon).
+    _box:     { kind: 'area', shape: 'box', note: true },
+    _ellipse: { kind: 'area', shape: 'ellipse', note: true },
+    _cloud:   { kind: 'area', shape: 'cloud', note: true },
+    // Site Mobilization: a site trailer (user, 2026-11-19), a black rectangle at its real size: placed by a click at the
+    // size last typed (40' x 10' to start), then sized by typing its length, width (metric or imperial) and angle.
+    // it.dims = { l, w } in metres (ft: typed in feet), so it keeps its real size if the drawing scale is changed.
+    'site-trailer': { kind: 'area', fill: '#000', fillOpacity: 1, stroke: '#000', strokeWidth: 1, trailer: true },
   };
   // A symbol with a region: select the placed symbol and "Draw ... area" draws it, as an area item of its own
   // (`<symbol>-zone`). The muster point has one; so does every symbol that names a `zone` colour (the Material
@@ -70497,7 +70529,7 @@ function createSitePlan(CFG) {
     STYLE[id + '-zone'] = { kind: 'area', fill: c, fillOpacity: 0.4, stroke: c, strokeWidth: 2.2, dash: '9 5' };
     ZONE_OF[id] = id + '-zone'; ZONE_NAME[id + '-zone'] = SYM[id].label.replace(/\s+area$/i, '') + ' area'; ZONE_SYM[id + '-zone'] = id; // 'Wash Area' gives 'Wash area'
   });
-  const NOTE_NAMES = { _text: 'Text label', _dim: 'Dimension' }; // the notes layer's items
+  const NOTE_NAMES = { _text: 'Text label', _dim: 'Dimension', _box: 'Box', _ellipse: 'Circle', _cloud: 'Cloud' }; // the notes layer's items
   const itemName = (sym) => ZONE_NAME[sym] || NOTE_NAMES[sym] || (SYM[sym] || {}).label || sym;
   const POINT_H = { 'ss-gate': 24, 'ss-dep': 26, dumpster: 28, barricade: 12, drum: 14, tubular: 14, cone: 10, sign: 10, workarea: 20, attenuator: 20, flashlight: 24, signal: 32, fab: 24, 'fab-caution': 24, dms: 30, 'truck-w': 22, 'truck-s': 22, 'truck-s1': 22, 'truck-s2': 22, 'truck-b': 22, 'truck-p': 22, 'truck-e': 22, 'truck-c': 22 }; // everything else is 36: design height in 1/100 in (see below)
   // Symbol size, one setting per plan: Small or Large. A symbol prints at a fixed size on the 11 x 17 sheet, whatever
@@ -71165,6 +71197,48 @@ function createSitePlan(CFG) {
     return s;
   }
 
+  // A notes shape (Box, Circle, Cloud): its outline in its colour over a light halo, as the dimensions are drawn. Only
+  // the outline takes a click, so what it rings can still be picked through it. Line weight: SHAPE_W, as a line's.
+  const SHAPE_W = 2;
+  const byCorners = (st) => !!st && st.kind === 'area' && !st.trailer && (st.shape === 'box' || st.shape === 'ellipse' || R.shape === 'rect'); // drawn by two opposite corners
+  const boxy = (st) => !!st && (st.shape === 'box' || st.shape === 'ellipse'); // always a box of 4 corners
+  const squareTo = (a, p) => { const dx = p[0] - a[0], dy = p[1] - a[1], k = Math.max(Math.abs(dx), Math.abs(dy)); return [a[0] + (dx < 0 ? -k : k), a[1] + (dy < 0 ? -k : k)]; };
+  // A revision cloud along a closed outline: each edge in equal arcs about 0.14 in long on the sheet (larger in the
+  // view as it is zoomed in, so it looks the same), bulging outwards whichever way round the corners were clicked.
+  function cloudD(P) {
+    const n = P.length, k = R.frz ? CV.z / R.frz : 1, arc = 14 * k;
+    let area = 0;
+    for (let i = 0; i < n; i++) { const a = P[i], b = P[(i + 1) % n]; area += a[0] * b[1] - b[0] * a[1]; }
+    const sweep = area > 0 ? 1 : 0; // screen y is down: a positive area runs clockwise, and its outside is to the left
+    let d = `M${fmt(P[0][0])} ${fmt(P[0][1])}`;
+    for (let i = 0; i < n; i++) {
+      const a = P[i], b = P[(i + 1) % n], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (L < 0.01) continue;
+      const m = Math.max(1, Math.round(L / arc)), r = (L / m) * 0.62;
+      for (let j = 1; j <= m; j++) d += ` A${fmt(r)} ${fmt(r)} 0 0 ${sweep} ${fmt(a[0] + ((b[0] - a[0]) * j) / m)} ${fmt(a[1] + ((b[1] - a[1]) * j) / m)}`;
+    }
+    return d + 'Z';
+  }
+  function shapeD(st, P) {
+    if (st.shape === 'cloud') return cloudD(P);
+    if (st.shape === 'ellipse') { // the ellipse inside the box of its corners
+      const xs = P.map((p) => p[0]), ys = P.map((p) => p[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, rx = (x1 - x0) / 2, ry = (y1 - y0) / 2;
+      return `M${fmt(x0)} ${fmt(cy)}A${fmt(rx)} ${fmt(ry)} 0 1 0 ${fmt(x1)} ${fmt(cy)}A${fmt(rx)} ${fmt(ry)} 0 1 0 ${fmt(x0)} ${fmt(cy)}Z`;
+    }
+    return pathD(P, true);
+  }
+  function drawShape(id, st, P, color, sel, preview, exp) {
+    if (P.length < 3 || P.some((p) => isNaN(p[0]))) return '';
+    const d = shapeD(st, P), col = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? color : LABEL_INK;
+    let s = '';
+    if (!preview && !exp) s += `<path class="cs-hit cs-hit-l" data-id="${id}" d="${d}" fill="none" stroke="transparent" stroke-width="${HIT}"/>`;
+    s += `<path d="${d}" fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="${SHAPE_W + 3}" stroke-linejoin="round"/>`;
+    s += `<path d="${d}" fill="none" stroke="${col}" stroke-width="${SHAPE_W}" stroke-linejoin="round"${preview ? ' stroke-dasharray="6 4"' : ''}/>`;
+    if (sel) s += `<path class="cs-selring" d="${d}" fill="none" stroke="#1a73e8" stroke-width="2" stroke-dasharray="5 4"/>`;
+    return s;
+  }
+
   const edgePt = (c, r, deg) => [c[0] + r * Math.cos(deg * Math.PI / 180), c[1] + r * Math.sin(deg * Math.PI / 180)];
   // An arc as SVG path commands from angle a0 sweeping clockwise: two halves, so a sweep near 360 (ends that round to the
   // same point, which SVG would drop) still draws. Starts with M unless `on` (the pen is already at its start).
@@ -71253,6 +71327,7 @@ function createSitePlan(CFG) {
     const sel = !exp && it.id === R.sel;
     if (it.sym === '_text') return drawText(it, P[0], sel, !exp);
     if (!st) return drawPoint(it, P[0], sel, exp);
+    if (st.shape) return drawShape(it.id, st, P, it.color, sel, false, exp);
     return st.kind === 'line' ? drawLine(it.id, st, P, sel, false, exp, st.dim ? (it.off || 0) * CV.z : 0) : drawArea(it.id, st, P, sel, false, exp);
   }
 
@@ -71290,12 +71365,13 @@ function createSitePlan(CFG) {
     if (!st) return '';
     const P = it.pts.map((p) => toScreen(p[0], p[1]));
     if (P.some((p) => isNaN(p[0]))) return '';
+    if (st.trailer) return trailerTag(it, P);
     const closed = st.kind === 'area', n = P.length;
     let s = '';
     if (st.dim) { // a dimension: its two measured points, and a square on its line to slide the line in or out
       const [a, b] = dimEnds(P, (it.off || 0) * V.z);
       s += `<rect class="cs-vo" x="${fmt((a[0] + b[0]) / 2 - 5 * HR)}" y="${fmt((a[1] + b[1]) / 2 - 5 * HR)}" width="${10 * HR}" height="${10 * HR}" fill="#fffb00" stroke="#1a73e8" stroke-width="2"/>`;
-    } else for (let i = 0; i < (closed ? n : n - 1); i++) {
+    } else if (!boxy(st)) for (let i = 0; i < (closed ? n : n - 1); i++) { // a box or circle keeps its 4 corners: no corner is added
       const a = P[i], b = P[(i + 1) % n];
       s += `<circle class="cs-vm" data-i="${i}" cx="${fmt((a[0] + b[0]) / 2)}" cy="${fmt((a[1] + b[1]) / 2)}" r="${4 * HR}" fill="#1a73e8" fill-opacity=".45" stroke="#fff" stroke-width="1"/>`;
     }
@@ -71305,7 +71381,7 @@ function createSitePlan(CFG) {
 
   function drawDraft() {
     const d = R.draft;
-    if (!d || !d.pts.length) return '';
+    if (!d || !d.pts.length) return trailerGhost();
     if (R.mode === 'cal') { // calibration line, with its length when a scale is already set
       const pts = d.pts.slice(); if (pts.length === 1 && R.cursor) pts.push(R.cursor);
       const P = pts.map((p) => toScreen(p[0], p[1]));
@@ -71321,13 +71397,13 @@ function createSitePlan(CFG) {
     const st = STYLE[R.tool];
     if (!st) return '';
     let pts = d.pts.slice(), off = 0;
-    if (st.kind === 'area' && R.shape === 'rect') pts = R.cursor ? rectPts(d.pts[0], R.cursor) : [];
+    if (byCorners(st)) pts = R.cursor ? rectPts(d.pts[0], R.cursor) : [];
     else if (st.dim && pts.length === 2) off = R.cursor ? dimOff(pts, R.cursor) * V.z : 0; // both ends set: the cursor carries the line
     else if (R.cursor) pts.push(R.cursor);
     const P = pts.map((p) => toScreen(p[0], p[1]));
     let s = '';
     if (st.kind === 'line') s += drawLine('__draft', st, P, false, true, false, off);
-    else if (P.length >= 3) s += drawArea('__draft', st, P, false, true);
+    else if (P.length >= 3) s += st.shape ? drawShape('__draft', st, P, shapeColNow(), false, true) : drawArea('__draft', st, P, false, true);
     else if (P.length === 2) s += `<path d="${pathD(P)}" stroke="#1a73e8" stroke-width="1.5" stroke-dasharray="5 4" fill="none"/>`;
     d.pts.forEach((p) => { const q = toScreen(p[0], p[1]); s += `<circle cx="${fmt(q[0])}" cy="${fmt(q[1])}" r="${3.5 * HR}" fill="#fff" stroke="#1a73e8" stroke-width="1.5"/>`; });
     return s;
@@ -71581,7 +71657,8 @@ function createSitePlan(CFG) {
     } else if (R.mode === 'draw' && R.tool) { // a symbol, a line's points, an area's corners
       s = snapPoint(m);
       const st = STYLE[R.tool];
-      if (st && n && !(st.kind === 'area' && R.shape === 'rect')) from = d.pts[n - 1]; // Shift: the next edge level, plumb or 45 degrees
+      if (st && n && !byCorners(st)) from = d.pts[n - 1]; // Shift: the next edge level, plumb or 45 degrees
+      else if (R.shift && n === 1 && boxy(st)) { const a = d.pts[0], q = s ? s.p : m; return { p: squareTo(a, q), s: { p: squareTo(a, q), kind: s ? s.kind : 'free', lock: a, from: s ? q : null } }; } // Shift: a square, a true circle
     } else return { p: m, s: null };
     if (R.shift && from) s = withLock(from, s, m);
     return { p: s ? s.p : m, s };
@@ -72180,10 +72257,10 @@ function createSitePlan(CFG) {
   function finishDraft() {
     const st = STYLE[R.tool], d = R.draft;
     if (!st || !d) return;
-    if (st.kind === 'area' && R.shape === 'poly' && d.pts.length && d.pts.length < 3) { toast('An area needs at least 3 corners: click the next corner.', 'err'); dirty(); return; } // kept, not thrown away
+    if (st.kind === 'area' && !byCorners(st) && d.pts.length && d.pts.length < 3) { toast('An area needs at least 3 corners: click the next corner.', 'err'); dirty(); return; } // kept, not thrown away
     if (st.kind === 'line' && !st.dim && d.pts.length === 1) { toast('A line needs at least 2 points: click the next point.', 'err'); dirty(); return; }
     if (st.kind === 'line' && d.pts.length >= 2) addItem(R.tool, d.pts);
-    else if (st.kind === 'area' && R.shape === 'poly' && d.pts.length >= 3) addItem(R.tool, d.pts);
+    else if (st.kind === 'area' && !byCorners(st) && d.pts.length >= 3) addItem(R.tool, d.pts, st.note ? newShapeStyle() : null);
     R.draft = null; dirty();
   }
   async function editText(it) {
@@ -72197,7 +72274,19 @@ function createSitePlan(CFG) {
   // one undo covers the whole change (R.tUndo) until the control is let go.
   const textTarget = () => { const it = R.mode === 'select' && R.sel && find(R.sel); return it && it.sym === '_text' ? it : null; };
   const textRotNow = () => { const it = textTarget(); return it ? labelRot(it) : labelRot({ rot: R.trot }); };
+  // A shape's colour (Box, Circle, Cloud), from the same 9 colours: the selected shape's, or the next shapes' (R.scol,
+  // kept apart from the labels' so a red cloud does not turn the next label red)
+  const shapeTarget = () => { const it = R.mode === 'select' && R.sel && find(R.sel); return it && (STYLE[it.sym] || {}).note ? it : null; };
+  const shapeTool = () => R.mode === 'draw' && !!(STYLE[R.tool] || {}).note;
+  const shapeColNow = () => R.scol || LABEL_INK;
+  const newShapeStyle = () => (R.scol && R.scol !== LABEL_INK ? { color: R.scol } : null);
   function setTextStyle(ch, live) {
+    const sh = shapeTarget();
+    if ('color' in ch && (sh || shapeTool())) {
+      R.scol = /^#[0-9a-f]{6}$/i.test(ch.color) ? ch.color.toLowerCase() : LABEL_INK;
+      if (sh && labelColor(sh) !== R.scol) { pushUndo(); if (R.scol === LABEL_INK) delete sh.color; else sh.color = R.scol; save(); }
+      dirty(); updateUi(); return;
+    }
     if ('color' in ch) R.tcol = /^#[0-9a-f]{6}$/i.test(ch.color) ? ch.color.toLowerCase() : LABEL_INK;
     if ('rot' in ch) R.trot = labelRot({ rot: ch.rot });
     if ('size' in ch) R.tsize = labelH({ size: ch.size });
@@ -72214,6 +72303,68 @@ function createSitePlan(CFG) {
   }
   const newLabelStyle = () => Object.assign({}, R.tcol && R.tcol !== LABEL_INK ? { color: R.tcol } : {}, labelRot({ rot: R.trot }) ? { rot: labelRot({ rot: R.trot }) } : {},
     labelH({ size: R.tsize }) !== LABEL_H0 ? { size: labelH({ size: R.tsize }) } : {});
+  // A length typed in metres or in feet and inches: "12.2", "12.2 m", "12200 mm", "40'", "40 ft", "40'-6\"", "40' 6",
+  // "486 in". A bare number is metres. null if it is not a length.
+  function parseLength(v) {
+    const t = String(v == null ? '' : v).trim().toLowerCase().replace(/[’′]/g, "'").replace(/[”″]/g, '"').replace(/,/g, '.');
+    let m = /^(\d+(?:\.\d+)?)\s*(?:'|ft|feet|foot)\s*-?\s*(?:(\d+(?:\.\d+)?)\s*(?:"|in|inch|inches)?)?$/.exec(t);
+    if (m) { const n = +m[1] * 0.3048 + (m[2] ? +m[2] * 0.0254 : 0); return n > 0 ? n : null; }
+    m = /^(\d*\.?\d+)\s*(mm|cm|m|metres?|meters?|"|in|inch|inches)?$/.exec(t);
+    if (!m) return null;
+    const n = +m[1] * ({ mm: 0.001, cm: 0.01, '"': 0.0254, in: 0.0254, inch: 0.0254, inches: 0.0254 }[m[2]] || 1);
+    return n > 0 ? n : null;
+  }
+  const ftIn = (metres) => { const ft = metres / 0.3048; let f = Math.floor(ft), inch = Math.round((ft - f) * 12); if (inch === 12) { f += 1; inch = 0; } return `${f}'-${inch}"`; };
+  const TRAILER0 = { l: 40 * 0.3048, w: 10 * 0.3048, a: 0, ft: 1 }; // 40' x 10', level, until a size is typed
+  // a trailer's corners about its centre c: its length along the angle (degrees anticlockwise as seen; screen y is
+  // down), its width across. All in drawing units.
+  function trailerPts(c, l, w, deg) {
+    const r = (deg * Math.PI) / 180, ux = Math.cos(r), uy = -Math.sin(r), vx = -uy, vy = ux;
+    return [[-l / 2, -w / 2], [l / 2, -w / 2], [l / 2, w / 2], [-l / 2, w / 2]].map(([x, y]) => [c[0] + x * ux + y * vx, c[1] + x * uy + y * vy]);
+  }
+  // a placed trailer as { c, l, w, a, ft }: its centre (drawing units), length and width in metres (as drawn at this
+  // page's scale), angle in degrees anticlockwise (-180 to 180), and whether its size was typed in feet
+  function trailerOf(it, m) {
+    m = m || mpu();
+    const P = it.pts; if (!P || P.length !== 4 || !m) return null;
+    const c = [(P[0][0] + P[2][0]) / 2, (P[0][1] + P[2][1]) / 2];
+    const a = (Math.atan2(-(P[1][1] - P[0][1]), P[1][0] - P[0][0]) * 180) / Math.PI;
+    return { c, l: Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]) * m, w: Math.hypot(P[2][0] - P[1][0], P[2][1] - P[1][1]) * m, a: Math.round(a * 100) / 100, ft: !!(it.dims && it.dims.ft) };
+  }
+  const trailerText = (t) => (t.ft ? `${ftIn(t.l)} × ${ftIn(t.w)} (${t.l.toFixed(2)} × ${t.w.toFixed(2)} m)` : `${t.l.toFixed(2)} × ${t.w.toFixed(2)} m (${ftIn(t.l)} × ${ftIn(t.w)})`) +
+    (Math.abs(t.a) > 0.005 ? `, ${+t.a.toFixed(1)}°` : '');
+  function trailerTag(it, P) { // the selected trailer's size, written above it
+    const t = trailerOf(it);
+    if (!t) return '';
+    const x = (P[0][0] + P[2][0]) / 2, y = Math.min(...P.map((p) => p[1])) - 9 * HR;
+    return `<text pointer-events="none" x="${fmt(x)}" y="${fmt(y)}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="12" fill="#111" stroke="#fff" stroke-width="4" paint-order="stroke">${esc(trailerText(t))}</text>`;
+  }
+  function trailerGhost() { // the Site Trailer tool in hand: its outline at the cursor, at the size it will be placed
+    const st = R.mode === 'draw' && STYLE[R.tool], m = mpu();
+    if (!st || !st.trailer || !R.hover || !m) return '';
+    const c = R.snap ? R.snap.p : toMap(...R.hover), t = R.tlast || TRAILER0, P = trailerPts(c, t.l / m, t.w / m, t.a).map((p) => toScreen(p[0], p[1]));
+    return `<path pointer-events="none" d="${pathD(P, true)}" fill="#000" fill-opacity=".3" stroke="#000" stroke-width="1.5" stroke-dasharray="6 4"/>`;
+  }
+  async function editTrailer(it) {
+    if (!mpu()) { toast('Set the drawing scale first (Drawing panel, Calibrate or Enter 1:N) to size the trailer in metres or feet.', 'err'); return; }
+    if (selLocked()) return;
+    const t = trailerOf(it), show = (x) => (t.ft ? ftIn(x) : `${+x.toFixed(2)} m`);
+    const v = await csAsk('Site trailer: length and width in metres (12.2) or feet and inches (40\' or 40\'-6"); angle in degrees, anticlockwise (0 = level).',
+      [['Length', show(t.l)], ['Width', show(t.w)], ['Angle (°)', String(+t.a.toFixed(1))]]);
+    if (!v) return;
+    const l = parseLength(v[0]), w = parseLength(v[1]), a = parseFloat(String(v[2]).replace(',', '.'));
+    if (!l || !w || l > 300 || w > 300) { toast('Type the length and width in metres (12.2) or in feet and inches (40\'-6"), each up to 300 m.', 'err'); return; }
+    if (!Number.isFinite(a)) { toast('Type the angle in degrees, anticlockwise (0 = level).', 'err'); return; }
+    const m = mpu(), now = find(it.id) && trailerOf(it, m); // as it is now (the page may have been turned while typing)
+    if (!now) return;
+    const ft = /['"]|ft|feet|foot|in\b|inch/i.test(v[0] + ' ' + v[1]), ang = ((((a + 180) % 360) + 360) % 360) - 180;
+    pushUndo();
+    it.dims = Object.assign({ l, w }, ft ? { ft: 1 } : {});
+    it.pts = trailerPts(now.c, l / m, w / m, ang);
+    R.tlast = { l, w, a: ang, ft }; // the next trailers placed take this size and angle
+    save(); dirty(); updateUi();
+    toast(`Site trailer: ${trailerText(trailerOf(it))}. The next trailers placed take this size.`);
+  }
   async function editCraneRadius(it) {
     const m = mpu();
     if (!m) { toast('Set the drawing scale first (Drawing panel, Scale) to type the reach in metres.', 'err'); return; }
@@ -72239,6 +72390,13 @@ function createSitePlan(CFG) {
     }
     const st = STYLE[R.tool];
     if (!st) { addItem(R.tool, [m], isCrane(R.tool) ? { r: mpu() ? DEFAULT_CRANE_RADIUS_M / mpu() : 120 / V.z } : null); return; }
+    if (st.trailer) { // a site trailer: at its real size, centred on the click, at the size and angle last typed
+      const mm = mpu();
+      if (!mm) { toast('Set the drawing scale first (Drawing panel, Calibrate or Enter 1:N): a site trailer is drawn at its real size.', 'err'); return; }
+      const t = R.tlast || TRAILER0;
+      addItem(R.tool, trailerPts(m, t.l / mm, t.w / mm, t.a), { dims: Object.assign({ l: t.l, w: t.w }, t.ft ? { ft: 1 } : {}) });
+      R.cursor = m; dirty(); updateUi(); return;
+    }
     if (!R.draft) R.draft = { pts: [] };
     // R.pushed: whether this click added a point (onDoubleTap takes back only one that did). A rectangle's second
     // corner within a tap's reach of its first (8 px, 24 px by touch) is the same spot clicked again, not a flat
@@ -72246,9 +72404,9 @@ function createSitePlan(CFG) {
     // short jogs can be drawn at any zoom (review, 2026-11-17).
     const tol = R.tapTouch ? 24 : 8, near = (q, t) => !!q && Math.hypot(m[0] - q[0], m[1] - q[1]) * V.z < (t || tol);
     R.pushed = false;
-    if (st.kind === 'area' && R.shape === 'rect') {
+    if (byCorners(st)) {
       if (!R.draft.pts.length) { R.draft.pts.push(m); R.pushed = true; }
-      else if (!near(R.draft.pts[0])) { addItem(R.tool, rectPts(R.draft.pts[0], m)); R.draft = null; }
+      else if (!near(R.draft.pts[0])) { addItem(R.tool, rectPts(R.draft.pts[0], m), st.note ? newShapeStyle() : null); R.draft = null; }
       else if (!(R.tapGap < 450)) toast('Too close to the first corner: zoom in, or pick the opposite corner further away.', 'err'); // a quick repeat: wait quietly
     } else if (st.dim) { // a dimension: its two ends, each snapped, then a third click for where its line goes
       const d = R.draft.pts;
@@ -72267,7 +72425,7 @@ function createSitePlan(CFG) {
     R.cursor = m; dirty(); updateUi();
   }
   function onDoubleTap(d) {
-    if (R.mode === 'select') { const it = d.item && find(d.item); if (it && isCrane(it.sym)) openSpec(it); else if (it && it.sym === '_text') editText(it); return; }
+    if (R.mode === 'select') { const it = d.item && find(d.item); if (it && isCrane(it.sym)) openSpec(it); else if (it && it.sym === '_text') editText(it); else if (it && (STYLE[it.sym] || {}).trailer) editTrailer(it); return; }
     if (isDimTool()) return; // a dimension takes single clicks only
     if (R.mode === 'draw' && R.draft) {
       const p = R.draft.pts, st = STYLE[R.tool] || {}, min = st.kind === 'area' ? 3 : 2;
@@ -72696,6 +72854,12 @@ function createSitePlan(CFG) {
       if (it.pg !== D.page || !it.spec || !(it.spec.jib > 0) || Math.abs(it.r - it.spec.jib / m) < 1e-6) continue;
       it.r = it.spec.jib / m; changed = true;
     }
+    for (const it of PLAN.items) { // a trailer keeps its real size (typed in metres or feet), about its centre and angle
+      if (it.pg !== D.page || !it.dims || !(STYLE[it.sym] || {}).trailer || it.pts.length !== 4) continue;
+      const t = trailerOf(it, m);
+      if (Math.abs(t.l - it.dims.l) < 1e-6 && Math.abs(t.w - it.dims.w) < 1e-6) continue;
+      it.pts = trailerPts(t.c, it.dims.l / m, it.dims.w / m, t.a); changed = true;
+    }
     if (changed) { if (!quiet) save(); dirty(); }
   }
   function openSpec(it) {
@@ -72936,7 +73100,7 @@ function createSitePlan(CFG) {
     // stacked a second symbol, started a stray dimension or made a flat rectangle: review, 2026-11-17), and further
     // quick clicks on the spot are skipped too, so a triple-click places one symbol
     const st = R.mode === 'draw' && R.tool ? STYLE[R.tool] : null;
-    const once = R.mode === 'draw' && !!R.tool && R.tool !== '_text' && (!st || isDimTool() || (st.kind === 'area' && R.shape === 'rect'));
+    const once = R.mode === 'draw' && !!R.tool && R.tool !== '_text' && (!st || isDimTool() || byCorners(st) || !!st.trailer);
     R.tapGap = R.lastTapT ? now - R.lastTapT : Infinity; R.lastTapT = now; // since the tap before (any): a quick one is a repeat
     const fin = R.finished; R.finished = null;
     // the 3rd click of a triple-click on the spot where a double-click just finished a line or area: not a new start
@@ -73026,6 +73190,26 @@ function createSitePlan(CFG) {
         up() { R.snap = null; save(); dirty(); },
       };
     }
+    if (boxy(st) && it.pts.length === 4) { // a box or circle: the opposite corner stays put and it stays a box; Shift: square
+      if (e.shiftKey) { removeVertex(it, st, i); return null; }
+      const o = it.pts[(i + 2) % 4].slice(), nx = it.pts[(i + 1) % 4], cur = it.pts[i];
+      const sameX = Math.abs(nx[0] - cur[0]) <= Math.abs(nx[1] - cur[1]); // the next corner is straight above or below this one
+      let moved = false;
+      return {
+        move(ev) {
+          if (!moved) { moved = true; pushUndo(); }
+          const m = toMap(...local(ev)), sn = snapPoint(m, it.id);
+          let q = sn ? sn.p : m;
+          if (ev.shiftKey) q = squareTo(o, q);
+          R.snap = sn && !ev.shiftKey ? sn : null;
+          it.pts[i] = [q[0], q[1]];
+          it.pts[(i + 1) % 4] = sameX ? [q[0], o[1]] : [o[0], q[1]];
+          it.pts[(i + 3) % 4] = sameX ? [o[0], q[1]] : [q[0], o[1]];
+          dirty();
+        },
+        up() { R.snap = null; save(); dirty(); },
+      };
+    }
     if (vh.classList.contains('cs-vm')) {
       pushUndo(); const a = it.pts[i], b = it.pts[(i + 1) % it.pts.length];
       it.pts.splice(i + 1, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]); i += 1; save(); dirty();
@@ -73050,6 +73234,7 @@ function createSitePlan(CFG) {
     };
   }
   function removeVertex(it, st, i) {
+    if (boxy(st)) { toast(`A ${itemName(it.sym).toLowerCase()} keeps its 4 corners: drag one to resize it.`); return; }
     const min = st.kind === 'area' ? 3 : 2;
     if (it.pts.length > min) { pushUndo(); it.pts.splice(i, 1); save(); dirty(); }
     else toast(st.kind === 'area' ? 'An area needs at least 3 corners.' : 'A line needs at least 2 points.');
@@ -73070,10 +73255,10 @@ function createSitePlan(CFG) {
   // and only when the button is there to press (the crane's with a crane selected, the text style's with the Text tool
   // or a label). Plain keys work only when no field has the typing; Ctrl is Cmd on a Mac. "?" (or the ? button) lists
   // them all; the buttons' tooltips name theirs. Hold Space to pan with any tool, as in Bluebeam and Acrobat.
-  const KEY_TOOLS = { v: 'select', h: 'pan', p: 'poly', r: 'rect', t: 'text', d: 'dim', l: 'check', s: 'snap', f: 'fit', z: 'zwin', a: 'mz', c: 'pie', e: 'spec', '[': 'trl', ']': 'trr' };
+  const KEY_TOOLS = { v: 'select', h: 'pan', p: 'poly', r: 'rect', t: 'text', d: 'dim', b: 'box', o: 'ell', k: 'cloud', l: 'check', s: 'snap', f: 'fit', z: 'zwin', a: 'mz', c: 'pie', e: ['spec', 'tsz'], '[': 'trl', ']': 'trr' }; // E: whichever of the two is showing
   const KEY_LIST = [
-    ['Tools', [['V', 'Select'], ['H', 'Pan (or hold Space with any tool)'], ['P', 'Polygon: areas by their corners'], ['R', 'Rect: areas by two corners'], ['T', 'Text label'], ['D', 'Dimension'], ['Enter', 'Finish the line or area'], ['Esc', 'Stop the tool / cancel']]],
-    ['Edit', [['Ctrl+Z', 'Undo'], ['Ctrl+D', 'Duplicate the selected item'], ['Delete', 'Delete the selected item'], ['Shift+Delete', 'Clear the page (asks first)'], ['A', 'Draw the area of the selected symbol'], ['C', 'Crane: swing pie or full circle'], ['E', 'Crane spec'], ['1 to 9', 'Text colour (Text tool, or a label selected)'], ['[ and ]', 'Turn the text 15°'], ['- and =', 'Text smaller / larger']]],
+    ['Tools', [['V', 'Select'], ['H', 'Pan (or hold Space with any tool)'], ['P', 'Polygon: areas by their corners'], ['R', 'Rect: areas by two corners'], ['T', 'Text label'], ['D', 'Dimension'], ['B', 'Box (Notes layer)'], ['O', 'Circle (Notes layer)'], ['K', 'Cloud (Notes layer)'], ['Enter', 'Finish the line or area'], ['Esc', 'Stop the tool / cancel']]],
+    ['Edit', [['Ctrl+Z', 'Undo'], ['Ctrl+D', 'Duplicate the selected item'], ['Delete', 'Delete the selected item'], ['Shift+Delete', 'Clear the page (asks first)'], ['A', 'Draw the area of the selected symbol'], ['C', 'Crane: swing pie or full circle'], ['E', 'Crane spec / Trailer size'], ['1 to 9', 'Text colour (Text tool, or a label selected)'], ['[ and ]', 'Turn the text 15°'], ['- and =', 'Text smaller / larger']]],
     ['View', [['F', 'Fit the page'], ['Z', 'Selected: zoom window'], ['Ctrl+Shift+Minus / Plus', 'Rotate the page left / right'], ['S', 'Snap on / off'], ['L', 'Crane setup checklist']]],
     ['File', [['Ctrl+O', 'Open a drawing'], ['Ctrl+S', 'Save plan file'], ['Ctrl+E', 'Export image (preview first)'], ['Ctrl+Shift+E', 'Export PDF (preview first)'], ['Ctrl+P', 'Print (preview first)'], ['?', 'This list']]],
   ];
@@ -73105,10 +73290,10 @@ function createSitePlan(CFG) {
       if (i >= 0 && i < sel.options.length) { sel.selectedIndex = i; sel.dispatchEvent(new Event('change')); }
       e.preventDefault(); return true;
     }
-    const id = KEY_TOOLS[k];
-    if (!id || (e.shiftKey && /[a-z]/.test(k))) return false;
+    const ids = KEY_TOOLS[k];
+    if (!ids || (e.shiftKey && /[a-z]/.test(k))) return false;
     if (e.repeat) { e.preventDefault(); return true; } // held down: once
-    if (press(R.btn[id])) { e.preventDefault(); return true; }
+    if ([].concat(ids).some((id) => press(R.btn[id]))) { e.preventDefault(); return true; }
     return false;
   }
   function onSpace(e) { // Space held: any drag pans, whatever the tool (onPointerDown)
@@ -73222,7 +73407,7 @@ function createSitePlan(CFG) {
       '</div>' +
       // a layer of one section needs no second heading; Site Mobilization's several keep theirs
       `<div class="cs-lyr-body">${l.sections.map((sec) => (l.sections.length > 1 ? `<div class="cs-sec">${esc(sec.title)}</div>` : '') + legendRows(sec.items, l.id)).join('')}` +
-      (l.notes ? '<div class="cs-lyr-note">Text and Dimension in the toolbar place them here too.</div>' : '') + '</div>' +
+      (l.notes ? '<div class="cs-lyr-note">Text, Dimension, Box, Circle and Cloud in the toolbar place them here too. Not listed in the exported legend.</div>' : '') + '</div>' +
       '</div>').join('');
   }
   const activeLayer = () => (R.mode === 'draw' && R.tool && R.lyr) || (R.sel && find(R.sel) ? layerOf(find(R.sel)) : null);
@@ -73613,6 +73798,7 @@ function createSitePlan(CFG) {
     if (pts.some((p) => isNaN(p[0]) || isNaN(p[1]) || Math.abs(p[0]) > 1e7 || Math.abs(p[1]) > 1e7)) return null; // not a number, or nowhere near a drawing
     const kind = (STYLE[it.sym] || {}).kind;
     if ((kind === 'line' && pts.length < 2) || (kind === 'area' && pts.length < 3)) return null; // too few points to draw
+    if ((boxy(STYLE[it.sym]) || (STYLE[it.sym] || {}).trailer) && pts.length !== 4) return null; // a box, circle or trailer is 4 corners
     const c = { id: uid(), sym: it.sym, pg: Math.max(1, Math.round(num(it.pg)) || 1), pts, layer: LAYER[it.layer] ? it.layer : homeLayer(it.sym) };
     if ([0, 1, 2, 3].includes(it._r)) c._r = it._r; // still facing the way it came (not yet shown since the layers came)
     if (it.sym === '_text') {
@@ -73621,6 +73807,8 @@ function createSitePlan(CFG) {
       const rot = labelRot(it); if (rot) c.rot = rot; // its angle, whole degrees anticlockwise
       if (labelH(it) !== LABEL_H0) c.size = labelH(it); // its height, one of the standard ones
     }
+    if ((STYLE[it.sym] || {}).note && /^#[0-9a-f]{6}$/i.test(String(it.color || '')) && it.color.toLowerCase() !== LABEL_INK) c.color = it.color.toLowerCase(); // a shape's colour
+    if ((STYLE[it.sym] || {}).trailer && it.dims) { const l = num(it.dims.l), w = num(it.dims.w); if (l > 0 && w > 0 && l <= 300 && w <= 300) c.dims = Object.assign({ l, w }, it.dims.ft ? { ft: 1 } : {}); } // a trailer's real size
     if (Number.isFinite(+it.r) && +it.r > 0) c.r = +it.r; // a reach is a positive length
     if (isCrane(it.sym) && it.spec) { const sp = cleanSpec(it.spec); if (sp) c.spec = sp; } // a crane's typed specification
     if ((STYLE[it.sym] || {}).dim && Number.isFinite(+it.off) && +it.off && Math.abs(+it.off) < 1e7) c.off = +it.off; // how far a dimension's line sits from its points
@@ -73775,6 +73963,13 @@ function createSitePlan(CFG) {
       const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
       return [{ sub: 'FreeText', subj: label, contents: text, layer: 'Linear Markups', rect: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
         upright: box, rot, svg: drawText(Object.assign({}, it, { rot: 0 }), c, false), extra: extra + ` /Rotation ${(360 - rot) % 360}` }];
+    }
+    if (st && st.shape) { // a notes shape: a Square, a Circle or a Polygon with Revu's cloud border, in its colour
+      if (P.length < 3) return [];
+      const col = labelColor(it), pad = st.shape === 'cloud' ? 10 : 4, rd = pn((pad - SHAPE_W / 2) * PT);
+      const brd = `/C ${pdfCol(col)} /BS << /W ${pn(SHAPE_W * PT)} /S /S /Type /Border >>`, svg = drawShape(it.id, st, P, it.color, false, false, true);
+      if (st.shape === 'cloud') return [{ sub: 'Polygon', subj: label, layer: 'Linear Markups', rect: box(P, pad), svg, extra: `${verts(P)} ${brd} /BE << /S /C /I 1 >> /IT /PolygonCloud` }];
+      return [{ sub: st.shape === 'ellipse' ? 'Circle' : 'Square', subj: label, layer: 'Linear Markups', rect: box(P, pad), svg, extra: `${brd} /RD [${rd} ${rd} ${rd} ${rd}]` }];
     }
     if (st && st.kind === 'line') {
       if (P.length < 2) return [];
@@ -74131,8 +74326,14 @@ function createSitePlan(CFG) {
       how = n === 2 ? `Now ${tap} where the dimension line should sit (on the measured line keeps it there).`
         : `${TAP} one end, then the other, then where the dimension line should sit. ${snapNote()}${COARSE ? '' : ' Hold Shift for a level, plumb or 45° dimension.'}`;
     }
+    else if (st.trailer) {
+      const t = R.tlast || TRAILER0;
+      how = !mpu() ? 'set the drawing scale first (Drawing panel): a trailer is drawn at its real size.'
+        : `${TAP} where its centre goes: it is placed at ${trailerText(t)}. Select it and press Trailer size (or double-${tap} it) to type its length, width and angle. ${snapNote()}`;
+    }
+    else if (boxy(st)) how = `${TAP} two opposite corners${COARSE ? '' : '; hold Shift for a ' + (st.shape === 'box' ? 'square' : 'true circle')}. Its colour is set in the toolbar (1 to 9). ${snapNote()}`;
     else if (st.kind === 'line') how = `${TAP} points along the route; double-${tap} or ${COARSE ? 'Finish' : 'Enter'} to finish${COARSE ? '' : ', Backspace removes a point'}. ${snapNote()}${COARSE ? '' : ' Hold Shift for a level, plumb or 45° segment.'}`;
-    else how = R.shape === 'rect' ? `${TAP} two opposite corners. ${snapNote()}` : `${TAP} each corner; double-${tap} or ${COARSE ? 'Finish' : 'Enter'} to close. ${snapNote()}${COARSE ? '' : ' Hold Shift for a level, plumb or 45° edge.'}`;
+    else how = byCorners(st) ? `${TAP} two opposite corners${st.note ? ' (Polygon: corner by corner)' : ''}. ${snapNote()}` : `${TAP} each corner; double-${tap} or ${COARSE ? 'Finish' : 'Enter'} to close. ${snapNote()}${COARSE ? '' : ' Hold Shift for a level, plumb or 45° edge.'}`;
     return `${name}: ${how} ${stop}`;
   }
   function snapNote(text) { // what the cursor will snap to, for the hint line
@@ -74180,6 +74381,7 @@ function createSitePlan(CFG) {
     on(R.btn.rect, R.shape === 'rect'); on(R.btn.poly, R.shape === 'poly'); on(R.btn.zwin, !!R.zwin);
     R.root.classList.toggle('cs-zwin', !!R.zwin);
     on(R.btn.text, R.mode === 'draw' && R.tool === '_text'); on(R.btn.dim, R.mode === 'draw' && R.tool === '_dim');
+    on(R.btn.box, R.mode === 'draw' && R.tool === '_box'); on(R.btn.ell, R.mode === 'draw' && R.tool === '_ellipse'); on(R.btn.cloud, R.mode === 'draw' && R.tool === '_cloud');
     on(R.calBtn, R.mode === 'cal'); on(R.btn.snap, snapOn());
     R.root.querySelectorAll('.cs-row').forEach((r) => r.classList.toggle('cs-active', R.mode === 'draw' && r.dataset.sym === R.tool && r.dataset.layer === R.lyr));
     renderLegend();
@@ -74190,11 +74392,14 @@ function createSitePlan(CFG) {
     R.btn.spec.style.display = cr ? '' : 'none'; R.btn.spec.classList.toggle('cs-on', !!(cr && R.specId === cr.id));
     syncSpec(cr);
     if (cr) R.btn.pie.textContent = cr.sweep && cr.sweep < 360 ? 'Crane: make circle' : 'Crane: make pie';
-    // a text label's colour and angle: shown with the Text tool (for the next labels) or a label selected (for it)
-    const lab = textTarget(), showT = !!lab || (R.mode === 'draw' && R.tool === '_text');
+    R.btn.tsz.style.display = sel && (STYLE[sel.sym] || {}).trailer ? '' : 'none';
+    // a text label's colour and angle: shown with the Text tool (for the next labels) or a label selected (for it); a
+    // shape's colour alone with the Box, Circle or Cloud tool, or a shape selected
+    const lab = textTarget(), shp = shapeTarget(), shapes = !!shp || shapeTool(), showT = !!lab || (R.mode === 'draw' && R.tool === '_text') || shapes;
     R.btn.tstyle.style.display = showT ? '' : 'none';
+    [R.btn.trl, R.btn.trr, R.btn.tsize, R.btn.trot.closest('label')].forEach((el) => { el.style.display = shapes ? 'none' : ''; });
     if (showT) {
-      const col = lab ? labelColor(lab) : R.tcol || LABEL_INK, rot = lab ? labelRot(lab) : labelRot({ rot: R.trot });
+      const col = shapes ? (shp ? labelColor(shp) : shapeColNow()) : lab ? labelColor(lab) : R.tcol || LABEL_INK, rot = lab ? labelRot(lab) : labelRot({ rot: R.trot });
       R.btn.tcol.querySelectorAll('[data-col]').forEach((sw) => sw.classList.toggle('cs-on', sw.dataset.col === col));
       const h = String(lab ? labelH(lab) : labelH({ size: R.tsize }));
       if (R.btn.tsize.value !== h) R.btn.tsize.value = h;
@@ -74204,7 +74409,7 @@ function createSitePlan(CFG) {
     R.btn.mz.style.display = zone ? '' : 'none';
     if (zone) R.btn.mz.textContent = 'Draw ' + ZONE_NAME[zone].toLowerCase();
     const st = R.mode === 'draw' && STYLE[R.tool], n = R.draft ? R.draft.pts.length : 0;
-    R.btn.finish.style.display = st && ((st.kind === 'line' && !st.dim && n >= 2) || (st.kind === 'area' && R.shape === 'poly' && n >= 3)) ? '' : 'none';
+    R.btn.finish.style.display = st && ((st.kind === 'line' && !st.dim && n >= 2) || (st.kind === 'area' && !byCorners(st) && !st.trailer && n >= 3)) ? '' : 'none';
   }
   function updateSide() {
     if (!R.root) return;
@@ -74300,6 +74505,9 @@ function createSitePlan(CFG) {
             <button id="cs-b-rect" title="Draw areas as rectangles (R)">Rect</button>
             <button id="cs-b-text" title="Place a text label: click where it goes, then type it. Double-click a label in Select mode to change it (T).">Text</button>
             <button id="cs-b-dim" title="Dimension: click the two ends, then where the dimension line should sit; the real length is written along it. Hold Shift for a level, plumb or 45° dimension (D).">Dimension</button>
+            <button id="cs-b-box" title="Box: a rectangle outline on the Notes layer, in the colour picked (1 to 9). ${COARSE ? 'Tap' : 'Click'} two opposite corners; hold Shift for a square. Drag a corner to resize it (B).">Box</button>
+            <button id="cs-b-ell" title="Circle: an ellipse in the box of two opposite corners, on the Notes layer, in the colour picked (1 to 9); hold Shift for a true circle. Drag a corner to resize it (O).">Circle</button>
+            <button id="cs-b-cloud" title="Cloud: a revision cloud on the Notes layer, in the colour picked (1 to 9): two opposite corners with Rect, or each corner with Polygon (Enter closes it) (K).">Cloud</button>
             <button id="cs-b-check" style="display:none" title="Crane setup checklist: open or close the side bar of checks for every site and for the city in the site address (L)">Checklist</button>
             <button id="cs-b-snap" title="Snap: clicks jump to the drawing's line ends, crossings and middles, and to the points of the markup on shown layers: placing symbols, drawing lines and areas (and reshaping or moving them), Text, Dimension and Calibrate. Click to turn it off or on (S).">Snap</button>
             <button id="cs-b-finish" class="cs-go" style="display:none" title="Finish the line or area (Enter)">Finish</button>
@@ -74308,9 +74516,10 @@ function createSitePlan(CFG) {
             <button id="cs-b-dup" title="Copy the selected item (Ctrl+D)">Duplicate</button>
             <button id="cs-b-pie" style="display:none" title="Switch the selected crane between a full circle and a swing pie (C)"></button>
             <button id="cs-b-spec" style="display:none" title="Crane specification: type the supplier's figures for the selected crane (jib, counter-jib, height, load chart). Double-clicking the crane opens it too (E).">Crane spec</button>
+            <button id="cs-b-tsz" style="display:none" title="Trailer size: type the selected site trailer's length and width (metres, or feet and inches) and its angle. Double-clicking the trailer opens it too (E).">Trailer size</button>
             <button id="cs-b-mz" style="display:none" title="Draw the area that goes with the selected symbol (rectangle or polygon, per the Polygon/Rect setting) (A)">Draw area</button>
             <span id="cs-b-tstyle" class="cs-tstyle" style="display:none">
-              <span id="cs-b-tcol" class="cs-acis" title="Text colour, AutoCAD's 9 standard colours: for the selected label, or the next labels placed with the Text tool (1 to 9)">${LABEL_ACI.map(([n, hex, name]) => `<button type="button" class="cs-aci" data-col="${hex}" style="background:${hex}" title="${n} ${name}">${n}</button>`).join('')}</span>
+              <span id="cs-b-tcol" class="cs-acis" title="Colour, AutoCAD's 9 standard colours: for the selected label or shape, or the next ones placed with the Text, Box, Circle or Cloud tool (1 to 9)">${LABEL_ACI.map(([n, hex, name]) => `<button type="button" class="cs-aci" data-col="${hex}" style="background:${hex}" title="${n} ${name}">${n}</button>`).join('')}</span>
               <button id="cs-b-trl" title="Turn the text 15° anticlockwise ([)">⟲</button>
               <label title="Text angle in degrees, anticlockwise (0 = level). For the selected label, or the next labels placed with the Text tool."><input type="number" id="cs-b-trot" min="-180" max="180" step="1" value="0">°</label>
               <button id="cs-b-trr" title="Turn the text 15° clockwise (])">⟳</button>
@@ -74463,7 +74672,7 @@ function createSitePlan(CFG) {
       dirty();
     });
     R.btn = {};
-    ['pan', 'select', 'poly', 'rect', 'text', 'dim', 'check', 'snap', 'finish', 'undo', 'dup', 'pie', 'spec', 'mz', 'tstyle', 'tcol', 'trot', 'trl', 'trr', 'tsize','del', 'clear', 'fit', 'zwin', 'rotl', 'rotr', 'scope', 'export', 'fmt', 'pdf', 'print', 'pkind', 'keys'].forEach((k) => (R.btn[k] = q('#cs-b-' + k)));
+    ['pan', 'select', 'poly', 'rect', 'text', 'dim', 'box', 'ell', 'cloud', 'check', 'snap', 'finish', 'undo', 'dup', 'pie', 'spec', 'tsz', 'mz', 'tstyle', 'tcol', 'trot', 'trl', 'trr', 'tsize','del', 'clear', 'fit', 'zwin', 'rotl', 'rotr', 'scope', 'export', 'fmt', 'pdf', 'print', 'pkind', 'keys'].forEach((k) => (R.btn[k] = q('#cs-b-' + k)));
 
     root.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => R.fileIn.click()));
     R.fileIn.onchange = () => { const fs = [...(R.fileIn.files || [])]; R.fileIn.value = ''; if (fs.length) openFiles(fs.map((file) => ({ file, path: file.name })), ''); };
@@ -74507,6 +74716,8 @@ function createSitePlan(CFG) {
     B.poly.onclick = () => { R.shape = 'poly'; if (R.mode === 'draw') R.draft = null; dirty(); updateUi(); };
     B.text.onclick = () => (R.mode === 'draw' && R.tool === '_text' ? setMode('pan') : arm('_text', NOTES));
     B.dim.onclick = () => (R.mode === 'draw' && R.tool === '_dim' ? setMode('pan') : arm('_dim', NOTES));
+    [['box', '_box'], ['ell', '_ellipse'], ['cloud', '_cloud']].forEach(([b, id]) => { B[b].onclick = () => (R.mode === 'draw' && R.tool === id ? setMode('pan') : arm(id, NOTES)); });
+    B.tsz.onclick = () => { const it = R.sel && find(R.sel); if (it && (STYLE[it.sym] || {}).trailer) editTrailer(it); };
     if (CK) {
       B.check.style.display = '';
       B.check.onclick = () => { store.checksOpen = !store.checksOpen; save(); renderChecks(); };

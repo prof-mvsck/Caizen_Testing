@@ -3,6 +3,7 @@
  * - Slick Line: the concrete pump's pipe run, a grey line with pipe joints. A line; app.js draws it (STYLE 'slick-line').
  * - Forklift Staging: where forklifts park between lifts, an orange cross-hatched area (STYLE 'forklift-staging').
  * - Placing Boom: a fixed concrete placing boom, in EQUIPMENT after the pump truck. It has a reach circle like the cranes.
+ * - Site Trailer: a black rectangle at its real size, typed in (STYLE 'site-trailer'), after Trade Partner Trailers Area.
  * Wayfinding tab ("only" keeps these off the other tabs; plans.js lists them):
  * - sign boards that say where things are, as the book's General Signage plan asks: blue for information, green for
  *   first aid and muster, red for no entry; four direction arrows; and a Wayfinding Route line (STYLE 'wf-route').
@@ -20,6 +21,13 @@
       { id: 'forklift-staging', label: 'Forklift Staging', vb: '0 0 112 26', w: 112, h: 26,
         inner: `<defs><pattern id="sw-fork-x" patternUnits="userSpaceOnUse" width="6" height="6"><path d="M0 0L6 6M6 0L0 6" stroke="${ORANGE}" stroke-width="1" fill="none"/></pattern></defs>` +
           `<rect x="1.5" y="1.5" width="109" height="23" fill="url(#sw-fork-x)" stroke="${ORANGE}" stroke-width="2"/>` });
+  }
+  // Site Trailer (2026-11-19): a black rectangle drawn at its real size (STYLE 'site-trailer' in app.js), after the
+  // Trade Partner Trailers Area
+  if (legend && !legend.items.some((i) => i.id === 'site-trailer')) {
+    const at = legend.items.findIndex((i) => i.id === 'trailers');
+    legend.items.splice(at >= 0 ? at + 1 : legend.items.length, 0,
+      { id: 'site-trailer', label: 'Site Trailer', vb: '0 0 112 26', w: 112, h: 26, inner: `<rect x="6" y="5" width="100" height="16" fill="${K}"/>` });
   }
   const eq = S.find((s) => s.title === 'EQUIPMENT');
   if (eq && !eq.items.some((i) => i.id === 'placing-boom')) {
