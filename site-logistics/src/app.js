@@ -421,13 +421,17 @@ function createSitePlan(CFG) {
   const layerSet = (id) => (PLAN && PLAN.layers && PLAN.layers[id]) || {};
   const layerOn = (id) => !layerSet(id).off;
   const layerOp = (id) => { const o = +layerSet(id).op; return o > 0 && o < 1 ? o : 1; };
+  // A locked layer shows and exports as usual, but its items cannot be selected, moved, edited, deleted or cleared, and
+  // nothing new goes on it (user, 2026-11-19: "can you give a lock layer toggle as well?"). Page turns still turn them.
+  const layerLocked = (id) => !!layerSet(id).lock;
   // this page's items on the layers that show (everything drawn, snapped to, cleared or exported goes through here)
   const items = () => (PLAN && D.ready ? PLAN.items.filter((i) => i.pg === D.page && layerOn(layerOf(i))) : []);
   function layerMarkup(exp) { // the shown layers' items on this page, in layer order (the last on top), each at its opacity
     const its = items(); let out = '';
     for (const l of LAYERS) {
       const s = its.filter((it) => layerOf(it) === l.id).map((it) => drawItem(it, exp)).join('');
-      if (s) out += layerOp(l.id) < 1 ? `<g opacity="${layerOp(l.id)}">${s}</g>` : s;
+      const op = layerOp(l.id), lock = layerLocked(l.id) && !exp; // locked: drawn, but clicks go through (styles.css)
+      if (s) out += op < 1 || lock ? `<g${lock ? ' class="cs-locked"' : ''}${op < 1 ? ` opacity="${op}"` : ''}>${s}</g>` : s;
     }
     return out;
   }
@@ -1785,21 +1789,30 @@ function createSitePlan(CFG) {
 
   // ---------- editing ----------
   function pushUndo() { R.undo.push(JSON.stringify(PLAN.items)); if (R.undo.length > 60) R.undo.shift(); }
-  function undo() { const j = R.undo.pop(); if (!j || !PLAN) return; PLAN.items = JSON.parse(j); R.sel = null; syncCraneReach(); save(); dirty(); } // a crane's reach follows its jib again
-  function delSel() { if (!R.sel) return; pushUndo(); PLAN.items = PLAN.items.filter((i) => i.id !== R.sel); R.sel = null; save(); dirty(); }
+  function undo() { // a locked layer's items stay as they are now: an undo from before it was locked does not reach them
+    const j = R.undo.pop(); if (!j || !PLAN) return;
+    const was = JSON.parse(j), lockedNow = PLAN.items.filter((i) => layerLocked(layerOf(i)));
+    PLAN.items = was.filter((i) => !layerLocked(layerOf(i))).concat(lockedNow);
+    R.sel = null; syncCraneReach(); save(); dirty(); // a crane's reach follows its jib again
+  }
+  const selLocked = () => { const it = R.sel && find(R.sel); return !!(it && layerLocked(layerOf(it))); };
+  function delSel() { if (!R.sel || selLocked()) return; pushUndo(); PLAN.items = PLAN.items.filter((i) => i.id !== R.sel); R.sel = null; save(); dirty(); }
   function dupSel() {
-    const it = R.sel && find(R.sel); if (!it) return;
+    const it = R.sel && find(R.sel); if (!it || selLocked()) return;
     pushUndo(); const off = 24 / V.z;
     const c = JSON.parse(JSON.stringify(it)); c.id = uid(); c.pts = it.pts.map((p) => [p[0] + off, p[1] + off]);
     PLAN.items.push(c); R.sel = c.id; save(); dirty();
   }
   async function clearAll() {
-    if (!items().length) return;
-    // the shown layers only: a hidden layer's markup cannot be seen, so it is not cleared unseen
-    const on = LAYERS.filter((l) => items().some((i) => layerOf(i) === l.id)).map((l) => l.label);
-    const kept = LAYERS.filter((l) => !layerOn(l.id) && PLAN.items.some((i) => i.pg === D.page && layerOf(i) === l.id)).map((l) => l.label);
-    if (!(await csConfirm(`Remove everything on this page on ${on.length === 1 ? 'the ' + on[0] + ' layer' : 'these layers: ' + on.join(', ')}?` + (kept.length ? ` Hidden layers (${kept.join(', ')}) keep theirs.` : '')))) return;
-    pushUndo(); PLAN.items = PLAN.items.filter((i) => i.pg !== D.page || !layerOn(layerOf(i))); R.sel = null; R.draft = null; save(); dirty(); updateUi();
+    // the shown, unlocked layers only: a hidden layer's markup cannot be seen, so it is not cleared unseen, and a
+    // locked one's is kept as it is
+    const open = (id) => layerOn(id) && !layerLocked(id), here = (id) => PLAN.items.some((i) => i.pg === D.page && layerOf(i) === id);
+    const on = LAYERS.filter((l) => open(l.id) && here(l.id)).map((l) => l.label);
+    const hid = LAYERS.filter((l) => !layerOn(l.id) && here(l.id)).map((l) => l.label), lck = LAYERS.filter((l) => layerOn(l.id) && layerLocked(l.id) && here(l.id)).map((l) => l.label);
+    if (!on.length) { if (items().length) toast(`Nothing to clear: ${lck.join(', ')} ${lck.length === 1 ? 'is' : 'are'} locked.`, 'err'); return; }
+    if (!(await csConfirm(`Remove everything on this page on ${on.length === 1 ? 'the ' + on[0] + ' layer' : 'these layers: ' + on.join(', ')}?` +
+      (hid.length ? ` Hidden layers (${hid.join(', ')}) keep theirs.` : '') + (lck.length ? ` Locked layers (${lck.join(', ')}) keep theirs.` : '')))) return;
+    pushUndo(); PLAN.items = PLAN.items.filter((i) => i.pg !== D.page || !open(layerOf(i))); R.sel = null; R.draft = null; save(); dirty(); updateUi();
   }
   function addItem(sym, pts, extra) {
     const layer = R.lyr && LAYER[R.lyr] ? R.lyr : homeLayer(sym); // the layer of the legend row picked (arm)
@@ -1933,7 +1946,8 @@ function createSitePlan(CFG) {
     const panOnly = e.button === 1 || R.mode === 'pan';
     const vh = !panOnly && R.mode === 'select' && R.sel ? e.target.closest('.cs-vh,.cs-vm,.cs-vr,.cs-va,.cs-vo') : null;
     if (vh) { R.drag = dragVertex(e, vh); if (R.drag) Object.assign(R.drag, { id: e.pointerId, x: p[0], y: p[1], touch: e.pointerType === 'touch' }); return; }
-    const hit = !panOnly && R.mode === 'select' ? e.target.closest('[data-id]') : null;
+    const hitEl = !panOnly && R.mode === 'select' ? e.target.closest('[data-id]') : null, hitIt = hitEl && find(hitEl.dataset.id);
+    const hit = hitIt && !layerLocked(layerOf(hitIt)) ? hitEl : null; // a locked layer's item is not picked up
     const drag = { id: e.pointerId, x: p[0], y: p[1], moved: false, cx: V.cx, cy: V.cy, item: hit ? hit.dataset.id : null, orig: null, pan: panOnly, touch: e.pointerType === 'touch' };
     if (drag.item) { const it = find(drag.item); if (it) { R.sel = drag.item; drag.orig = it.pts.map((q) => q.slice()); dirty(); updateUi(); } else drag.item = null; }
     R.drag = drag;
@@ -2765,11 +2779,14 @@ function createSitePlan(CFG) {
   // worked on (the tool in hand, or the item selected) is marked. Shown or hidden and the opacity are kept with the plan
   // (they decide what the export prints); which lists are dropped down is kept with this browser (store.open).
   const EYE_ON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12c2.6-4.4 6-6.6 10-6.6s7.4 2.2 10 6.6c-2.6 4.4-6 6.6-10 6.6S4.6 16.4 2 12Z" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/></svg>';
+  const LOCK_ON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="5" y="10.5" width="14" height="10" rx="1.6" fill="currentColor"/></svg>';
+  const LOCK_OFF = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 10.5V7.8a4 4 0 0 1 7.7-1.6" fill="none" stroke="currentColor" stroke-width="2"/><rect x="5.8" y="11.3" width="12.4" height="8.4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
   const EYE_OFF = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12c2.6-4.4 6-6.6 10-6.6s7.4 2.2 10 6.6c-2.6 4.4-6 6.6-10 6.6S4.6 16.4 2 12Z" fill="none" stroke="currentColor" stroke-width="1.9" opacity=".45"/><path d="M4 20 20 4" stroke="currentColor" stroke-width="2.1"/></svg>';
   function legendHtml() {
     return LAYERS.map((l) => `<div class="cs-lyr" data-layer="${l.id}">` +
       '<div class="cs-lyr-head">' +
       `<button type="button" class="cs-lyr-eye" data-eye aria-pressed="true" title="Show or hide the ${esc(l.label)} layer, on screen and on the sheet">${EYE_ON}</button>` +
+      `<button type="button" class="cs-lyr-lock" data-lock aria-pressed="false" title="Lock or unlock the ${esc(l.label)} layer: locked, it shows and prints but its markup cannot be selected, moved, deleted or added to">${LOCK_OFF}</button>` +
       `<button type="button" class="cs-lyr-name" data-fold aria-expanded="false" title="Show or hide the ${esc(l.label)} symbols"><span class="cs-lyr-car" aria-hidden="true"></span><b>${esc(l.label)}</b><small class="cs-lyr-n"></small></button>` +
       `<label class="cs-lyr-op" title="Opacity of the ${esc(l.label)} layer, on screen and on the sheet"><input type="range" data-op min="0.1" max="1" step="0.05" value="1" aria-label="${esc(l.label)} opacity"><span>100%</span></label>` +
       '</div>' +
@@ -2790,6 +2807,10 @@ function createSitePlan(CFG) {
       const eye = el.querySelector('[data-eye]');
       if (eye.getAttribute('aria-pressed') !== String(on)) { eye.setAttribute('aria-pressed', String(on)); eye.innerHTML = on ? EYE_ON : EYE_OFF; }
       eye.disabled = !PLAN;
+      const lk = el.querySelector('[data-lock]'), locked = layerLocked(id);
+      el.classList.toggle('cs-lyr-locked', locked);
+      if (lk.getAttribute('aria-pressed') !== String(locked)) { lk.setAttribute('aria-pressed', String(locked)); lk.innerHTML = locked ? LOCK_ON : LOCK_OFF; }
+      lk.disabled = !PLAN;
       el.querySelector('[data-fold]').setAttribute('aria-expanded', String(open));
       el.querySelector('.cs-lyr-n').textContent = n ? `${n} on this page` : '';
       const r = el.querySelector('[data-op]');
@@ -2798,14 +2819,15 @@ function createSitePlan(CFG) {
       r.nextElementSibling.textContent = Math.round(op * 100) + '%';
     });
   }
-  function setLayer(id, ch, noSave) { // ch: { off } and/or { op }; noSave: a slider still moving (saved on its change)
+  function setLayer(id, ch, noSave) { // ch: { off }, { op } and/or { lock }; noSave: a slider still moving (saved on its change)
     if (!PLAN || !LAYER[id]) return;
     const cur = Object.assign({}, layerSet(id), ch);
     if (!cur.off) delete cur.off;
+    if (!cur.lock) delete cur.lock;
     if (!(cur.op > 0 && cur.op < 1)) delete cur.op;
     PLAN.layers = Object.assign({}, PLAN.layers);
     if (Object.keys(cur).length) PLAN.layers[id] = cur; else delete PLAN.layers[id];
-    if (cur.off) { // hidden: nothing on it stays selected or in hand
+    if (cur.off || cur.lock) { // hidden or locked: nothing on it stays selected or in hand
       const s = R.sel && find(R.sel);
       if (s && layerOf(s) === id) { R.sel = null; if (R.specId === s.id) closeSpec(); }
       if (R.mode === 'draw' && R.lyr === id) setMode('pan');
@@ -3076,6 +3098,7 @@ function createSitePlan(CFG) {
     // A file from one of the tabs, from before the layers (files from before the tabs are Site Mobilization's; the
     // Overlay's held its text labels and dimensions): it replaces that layer's markup only.
     const tab = j.tab || 'mobilization', one = tab === CFG.id ? null : tab === 'overlay' ? NOTES : LAYER[tab] ? tab : LAYERS[0].id;
+    if (one && layerLocked(one)) { toast(`The ${LAYER[one].label} layer is locked. Unlock it first to load this file onto it.`, 'err'); return; }
     if (!(await csConfirm((other ? `This plan was made on ${j.drawing.name}, and ${D.name} is open. ` : '') + (one
       ? `This plan file is from the ${LAYER[one].label} tab, from before the layers. Replace the ${LAYER[one].label} layer's markup on this drawing with the file's? The other layers, the scales and the title block stay as they are.`
       : 'Replace the markup on every layer, the scales and the title block on this drawing with the ones in the file?')))) return;
@@ -3099,6 +3122,7 @@ function createSitePlan(CFG) {
     Object.keys(p.layers && typeof p.layers === 'object' ? p.layers : {}).filter((id) => LAYER[id]).forEach((id) => {
       const x = p.layers[id] || {}, c = {}, op = num(x.op);
       if (x.off) c.off = 1;
+      if (x.lock) c.lock = 1;
       if (op > 0 && op < 1) c.op = Math.max(0.1, op);
       if (Object.keys(c).length) layers[id] = c;
     });
@@ -3595,7 +3619,9 @@ function createSitePlan(CFG) {
   }
   function arm(id, layer) { // a tool in hand: a symbol of a layer (the legend row picked), or Text or Dimension (notes)
     if (!D.ready) { toast('Open a drawing first.', 'err'); return; }
-    R.lyr = layer && LAYER[layer] ? layer : homeLayer(id);
+    const lyr = layer && LAYER[layer] ? layer : homeLayer(id);
+    if (layerLocked(lyr)) { toast(`The ${LAYER[lyr].label} layer is locked. Unlock it (the padlock in the legend) to place on it.`, 'err'); return; }
+    R.lyr = lyr;
     if (!layerOn(R.lyr)) { setLayer(R.lyr, { off: 0 }); toast(`The ${LAYER[R.lyr].label} layer was hidden; it shows again, so what you place can be seen.`); }
     R.root.classList.remove('cs-mode-pan', 'cs-mode-select', 'cs-mode-cal'); R.root.classList.add('cs-mode-draw');
     R.mode = 'draw'; R.tool = id; R.draft = null; R.sel = null; R.lastTap = null; R.snap = null; R.hover = null; R.zwin = null; dirty(); updateUi(); // a tool picked: Selected ends
@@ -3849,6 +3875,7 @@ function createSitePlan(CFG) {
       const el = e.target.closest('.cs-lyr'), id = el && el.dataset.layer;
       if (!id) return;
       if (e.target.closest('[data-eye]')) setLayer(id, { off: layerOn(id) ? 1 : 0 });
+      else if (e.target.closest('[data-lock]')) setLayer(id, { lock: layerLocked(id) ? 0 : 1 });
       else if (e.target.closest('[data-fold]')) {
         store.open = Object.assign({}, store.open);
         if (store.open[id]) delete store.open[id]; else store.open[id] = 1;

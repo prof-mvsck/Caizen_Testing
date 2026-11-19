@@ -113,9 +113,15 @@ button, input, select { font: inherit; color: inherit; }
 .cs-lyr { border-bottom: 1.5px solid #111; }
 .cs-lyr-head { display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 5px; background: #f2f3f5; position: sticky; top: 0; z-index: 1; }
 .cs-lyr-act .cs-lyr-head { background: #e3edff; box-shadow: inset 4px 0 0 #1a73e8; }
-.cs-lyr-eye { flex: none; width: 28px; height: 24px; padding: 2px 4px; border: 1px solid #888; border-radius: 3px; background: #fff; color: #111; cursor: pointer; }
-.cs-lyr-eye svg { width: 100%; height: 100%; display: block; }
-.cs-lyr-eye:hover { background: #eef3ff; }
+.cs-lyr-eye, .cs-lyr-lock { flex: none; width: 26px; height: 24px; padding: 2px 3px; border: 1px solid #888; border-radius: 3px; background: #fff; color: #111; cursor: pointer; }
+.cs-lyr-eye svg, .cs-lyr-lock svg { width: 100%; height: 100%; display: block; }
+.cs-lyr-eye:hover, .cs-lyr-lock:hover { background: #eef3ff; }
+.cs-lyr-lock { color: #999; }
+.cs-lyr-locked .cs-lyr-lock { color: #7a4b00; background: #ffe7b3; border-color: #b07800; } /* locked: the padlock stands out */
+.cs-lyr-locked .cs-lyr-body .cs-row { cursor: not-allowed; }
+.cs-lyr-locked .cs-lyr-body .cs-row:hover { background: none; }
+/* a locked layer's markup is drawn but takes no clicks: they go through to the drawing (app.js, layerMarkup) */
+.cs-root .cs-locked, .cs-root .cs-locked * { pointer-events: none !important; }
 .cs-lyr-off .cs-lyr-eye { color: #777; background: #f6f6f6; }
 .cs-lyr-name {
   flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: 11px minmax(0, 1fr); column-gap: 3px; align-items: center;
@@ -128,7 +134,7 @@ button, input, select { font: inherit; color: inherit; }
 .cs-lyr-open .cs-lyr-car { transform: rotate(90deg); }
 .cs-lyr-off .cs-lyr-name b { color: #777; }
 .cs-lyr-op { flex: none; display: flex; align-items: center; gap: 2px; font-size: 10.5px; color: #444; cursor: default; }
-.cs-lyr-op input { width: 62px; margin: 0; }
+.cs-lyr-op input { width: 54px; margin: 0; }
 .cs-lyr-op span { width: 30px; text-align: right; }
 .cs-lyr-body { display: none; }
 .cs-lyr-open .cs-lyr-body { display: block; }

@@ -15,6 +15,10 @@ All layers show on the drawing together; the last in the list draws on top.
 - Each layer's heading has an **eye** (show or hide it), its name with how many items it has on this page, and an
   **opacity** slider. Hidden layers are not drawn, cannot be selected or snapped to, and are left off the export;
   the opacity applies on screen and on the sheet. Both are kept with the plan.
+- The **padlock** beside the eye locks a layer: it still shows and prints, but its markup cannot be selected, moved,
+  edited, deleted or cleared, nothing new can be placed on it (its symbols, or Text and Dimension for a locked Notes),
+  an undo from before the lock leaves it as it is, and an old tab's plan file will not replace it. Page turns still
+  turn it with the drawing. Kept with the plan.
 - Click a layer's name to **drop down its symbols and hatches**; pick one to place it on that layer. The layer being
   worked on (the tool in hand, or the selected item) is marked in blue. Picking a symbol of a hidden layer shows it.
 - **Notes** holds the text labels and dimensions. **Text** and **Dimension** are in the toolbar for every layer and
