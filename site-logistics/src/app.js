@@ -1795,8 +1795,11 @@ function createSitePlan(CFG) {
   }
   async function clearAll() {
     if (!items().length) return;
-    if (!(await csConfirm('Remove everything you have placed on this page?'))) return;
-    pushUndo(); PLAN.items = PLAN.items.filter((i) => i.pg !== D.page); R.sel = null; R.draft = null; save(); dirty(); updateUi();
+    // the shown layers only: a hidden layer's markup cannot be seen, so it is not cleared unseen
+    const on = LAYERS.filter((l) => items().some((i) => layerOf(i) === l.id)).map((l) => l.label);
+    const kept = LAYERS.filter((l) => !layerOn(l.id) && PLAN.items.some((i) => i.pg === D.page && layerOf(i) === l.id)).map((l) => l.label);
+    if (!(await csConfirm(`Remove everything on this page on ${on.length === 1 ? 'the ' + on[0] + ' layer' : 'these layers: ' + on.join(', ')}?` + (kept.length ? ` Hidden layers (${kept.join(', ')}) keep theirs.` : '')))) return;
+    pushUndo(); PLAN.items = PLAN.items.filter((i) => i.pg !== D.page || !layerOn(layerOf(i))); R.sel = null; R.draft = null; save(); dirty(); updateUi();
   }
   function addItem(sym, pts, extra) {
     const layer = R.lyr && LAYER[R.lyr] ? R.lyr : homeLayer(sym); // the layer of the legend row picked (arm)
