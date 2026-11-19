@@ -92,11 +92,14 @@ Ctrl is Cmd on a Mac.
    checked by, date). It prints exactly as laid out on screen.
 5. **Sheet scale** (left panel): *Auto* uses the largest standard scale (1:100, 1:125, 1:150, 1:200, 1:250, ...) at
    which everything in view still fits. A fixed scale (metric, 1" = 20' style, or 1/4" = 1'-0" and 1/8" = 1'-0") prints the area inside the dashed frame on screen.
-   **Once the drawing has a scale, the view is held at the sheet scale** (2026-11-19): the dashed outline always fills
-   the window as the sheet's print area, and the drawing pans under it (drag, scroll, Shift+scroll sideways; two
-   fingers on a touch screen) but does not zoom. The scale changes with *Sheet scale*, or on *Auto* with **Fit** (the
-   largest standard scale that shows the whole page) and **Selected** (the one for a dragged rectangle). Calibrate can
-   zoom while its two points are picked and puts the view back after. Without a drawing scale, zoom is free.
+   **Once the drawing has a scale, the whole sheet is as far out as the view goes** (2026-11-19): there the dashed
+   outline fills the window as the sheet's print area. Scroll (or pinch) to zoom in for a closer look, and back out
+   to the whole sheet, no further. Zooming in is a magnifier: the print area and its scale stay as they were (pan
+   around while zoomed in and zoom back out: the same sheet), and Auto's scale is held, not picked again from the zoom.
+   Drag at the whole sheet to move what prints. The scale changes with *Sheet scale*, or on *Auto* with **Fit** (the
+   largest standard scale that shows the whole page) and **Selected** (the one for a dragged rectangle), each shown
+   as the whole sheet. Calibrate can zoom freely while its two points are picked and puts the view back after.
+   Without a drawing scale, zoom is free.
 6. **Export image / Export PDF / Print**: first a **preview** of the sheet exactly as it will be saved, with the
    layers on it, the hidden ones left off, the scale and the file name; nothing is written until **Save** (Esc or
    Cancel saves nothing; 2026-11-19). 11 x 17 in at 200 dpi, with the drawing at the sheet scale, a north arrow, a
