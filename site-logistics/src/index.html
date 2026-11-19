@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="description" content="Lay out a construction site logistics plan over a site plan PDF or image and export an 11 x 17 sheet with a title block.">
+<title>Site Logistics</title>
+<!--
+  Site Logistics: lay out a construction logistics plan over any PDF page or image and export an 11 x 17 sheet.
+  Built from site-logistics/src/ by site-logistics/build.py ({{build_stamp}}). Edit the source, not this file.
+-->
+<style>
+{{inline:styles.css}}
+</style>
+</head>
+<body>
+<nav class="cs-plans" role="tablist" aria-label="Plans"></nav>
+<script>
+{{inline:symbols.js}}
+</script>
+<script>
+{{inline:symbols_tc.js}}
+</script>
+<script>
+{{inline:symbols_extra.js}}
+</script>
+<script>
+{{inline:symbols_more.js}}
+</script>
+<script>
+{{inline:symbols_safety.js}}
+</script>
+<script>
+{{inline:symbols_safety_extra.js}}
+</script>
+<script>
+{{inline:symbols_material.js}}
+</script>
+<script>
+{{inline:crane_notes.js}}
+</script>
+<script>
+{{inline:crane_checklist.js}}
+</script>
+<script>
+{{inline:crane_models.js}}
+</script>
+<!-- PDF.js 5.4.624 legacy build (Mozilla, Apache License 2.0) with its OpenJPEG (BSD-2-Clause) and PDFium JBIG2 (BSD-3-Clause)
+     decoders, embedded so this file needs no network. Their licences are in the "licences" block at the end. -->
+<script type="text/plain" id="pdfjs-lib">
+{{base64:vendor/pdf.min.mjs}}
+</script>
+<script type="text/plain" id="pdfjs-worker">
+{{worker:vendor/pdf.worker.min.mjs}}
+</script>
+<script type="text/plain" id="wasm-openjpeg">
+{{base64:vendor/openjpeg.wasm}}
+</script>
+<script type="text/plain" id="wasm-jbig2">
+{{base64:vendor/jbig2.wasm}}
+</script>
+<!-- Decoders for image formats Chrome and Edge do not read, embedded unmodified and started only when such a file is opened:
+     UTIF.js 3.1.0 with pako 1.0.11 (TIFF; MIT, MIT and Zlib), jxl-oxide-wasm 0.12.6 (JPEG XL; MIT), libheif-js 1.23.5 (HEIC; LGPL-3.0). -->
+<script type="text/plain" id="dec-pako">
+{{base64:vendor/pako_inflate.min.js}}
+</script>
+<script type="text/plain" id="dec-utif">
+{{base64:vendor/utif.js}}
+</script>
+<script type="text/plain" id="dec-jxl-js">
+{{base64:vendor/jxl_oxide_wasm.js}}
+</script>
+<script type="text/plain" id="dec-jxl-wasm">
+{{base64:vendor/jxl_oxide_wasm_bg.wasm}}
+</script>
+<script type="text/plain" id="dec-heif-js">
+{{base64:vendor/libheif.js}}
+</script>
+<script type="text/plain" id="dec-heif-wasm">
+{{base64:vendor/libheif.wasm}}
+</script>
+<!-- Flux Architect Bold, the text labels' lettering (orange modern, freeware; note in the licences block). -->
+<script type="text/plain" id="font-label">
+{{base64:vendor/FluxArchitect-Bold.ttf}}
+</script>
+<script>
+{{inline:app.js}}
+</script>
+<script>
+{{inline:plans.js}}
+</script>
+<script type="text/plain" id="licences">
+{{text:vendor/LICENCES.txt}}
+</script>
+</body>
+</html>
