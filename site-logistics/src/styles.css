@@ -235,6 +235,18 @@ button, input, select { font: inherit; color: inherit; }
 .cs-pv-img { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; background: #e6e8eb; border: 1px solid #bbb; padding: 8px; }
 .cs-pv-img img { display: block; max-width: 100%; max-height: calc(100vh - 250px); object-fit: contain; background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, .3); }
 .cs-pv-line { font-size: 12px; color: #333; overflow-wrap: anywhere; }
+/* the preview of every page: the sheet picked, large, over a strip of all of them (each filled in as it is ready) */
+.cs-pv-many .cs-pv-img { position: relative; min-height: 180px; }
+.cs-pv-many .cs-pv-img img { max-height: calc(100vh - 400px); }
+.cs-pv-wait { color: #444; font-size: 13px; }
+.cs-pv-strip { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 6px; flex: none; }
+.cs-pv-th { flex: none; width: 128px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px; background: #fff; border: 1px solid #bbb; border-radius: 2px; cursor: pointer; font: 11px Arial, Helvetica, sans-serif; color: #333; }
+.cs-pv-th:hover { border-color: #1a73e8; }
+.cs-pv-th.cs-on { border: 2px solid #1a73e8; padding: 3px; }
+.cs-pv-th img { display: block; width: 118px; height: 76px; object-fit: contain; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); }
+.cs-pv-ph { display: flex; align-items: center; justify-content: center; width: 118px; height: 76px; background: #e6e8eb; color: #777; font-size: 18px; }
+.cs-pv-th small { max-width: 118px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-dlg-btns .cs-btn[disabled] { opacity: .7; cursor: progress; }
 /* the keyboard shortcuts list */
 .cs-dlg.cs-info-dlg { width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; gap: 6px; }
 .cs-info-body { overflow-y: auto; min-height: 0; }

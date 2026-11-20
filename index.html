@@ -248,6 +248,18 @@ button, input, select { font: inherit; color: inherit; }
 .cs-pv-img { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; background: #e6e8eb; border: 1px solid #bbb; padding: 8px; }
 .cs-pv-img img { display: block; max-width: 100%; max-height: calc(100vh - 250px); object-fit: contain; background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, .3); }
 .cs-pv-line { font-size: 12px; color: #333; overflow-wrap: anywhere; }
+/* the preview of every page: the sheet picked, large, over a strip of all of them (each filled in as it is ready) */
+.cs-pv-many .cs-pv-img { position: relative; min-height: 180px; }
+.cs-pv-many .cs-pv-img img { max-height: calc(100vh - 400px); }
+.cs-pv-wait { color: #444; font-size: 13px; }
+.cs-pv-strip { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 6px; flex: none; }
+.cs-pv-th { flex: none; width: 128px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px; background: #fff; border: 1px solid #bbb; border-radius: 2px; cursor: pointer; font: 11px Arial, Helvetica, sans-serif; color: #333; }
+.cs-pv-th:hover { border-color: #1a73e8; }
+.cs-pv-th.cs-on { border: 2px solid #1a73e8; padding: 3px; }
+.cs-pv-th img { display: block; width: 118px; height: 76px; object-fit: contain; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); }
+.cs-pv-ph { display: flex; align-items: center; justify-content: center; width: 118px; height: 76px; background: #e6e8eb; color: #777; font-size: 18px; }
+.cs-pv-th small { max-width: 118px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-dlg-btns .cs-btn[disabled] { opacity: .7; cursor: progress; }
 /* the keyboard shortcuts list */
 .cs-dlg.cs-info-dlg { width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; gap: 6px; }
 .cs-info-body { overflow-y: auto; min-height: 0; }
@@ -70346,33 +70358,60 @@ function csInfo(title, html) {
 // Export and Print show the sheet first, exactly as it will be saved, with what is on it, and save only on Save (user,
 // 2026-11-19: "clicking export/print should trigger a preview pane so we know what is visible as on screen, but as a
 // safety measure to avoid too many copies"). o: { url (the picture), title, sub, lines, ok (the Save button's words) }.
+// Every page (user, 2026-11-20: "when exporting all pages, can the preview show the whole PDF"): o.sheets lists the
+// sheets' names instead of url, o.start the one shown large first, and o.onOpen(api) gets { set(i, url): a sheet is
+// ready, done(): all are (Save works from then on), status(text): Save's words meanwhile, fail(text), closed() }.
+// A sheet in the strip shows large when clicked (or with the arrow keys).
 // Keys as in csDialog: Enter saves, Esc cancels, and no key reaches the drawing behind it.
 function csPreview(o) {
   return new Promise((res) => {
     const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const many = Array.isArray(o.sheets), urls = [];
+    let at = many ? Math.max(0, Math.min(o.sheets.length - 1, o.start || 0)) : 0, closed = false, ready = !many;
     const back = document.createElement('div');
     back.className = 'cs-dlg-back';
-    back.innerHTML = '<div class="cs-dlg cs-pv" role="dialog" aria-modal="true" aria-label="Preview before saving">' +
+    back.innerHTML = `<div class="cs-dlg cs-pv${many ? ' cs-pv-many' : ''}" role="dialog" aria-modal="true" aria-label="Preview before saving">` +
       `<div class="cs-pv-head"><b>${esc(o.title)}</b><span>${esc(o.sub || '')}</span></div>` +
-      `<div class="cs-pv-img"><img alt="The sheet as it will be saved" src="${o.url}"></div>` +
+      `<div class="cs-pv-img"><img alt="The sheet as it will be saved"${many ? ' hidden' : ` src="${o.url}"`}>${many ? '<span class="cs-pv-wait"></span>' : ''}</div>` +
+      (many ? `<div class="cs-pv-strip">${o.sheets.map((t, i) => `<button type="button" class="cs-pv-th" data-i="${i}" title="${esc(t)}"><span class="cs-pv-ph">…</span><img alt="" hidden><small>${esc(t)}</small></button>`).join('')}</div>` : '') +
       (o.lines || []).map((l) => `<div class="cs-pv-line">${esc(l)}</div>`).join('') +
-      `<div class="cs-dlg-btns"><button type="button" class="cs-btn" data-x="cancel">Cancel</button><button type="button" class="cs-btn cs-primary" data-x="ok">${esc(o.ok)}</button></div></div>`;
-    const ok = back.querySelector('[data-x="ok"]'), before = document.activeElement;
-    let closed = false;
+      `<div class="cs-dlg-btns"><button type="button" class="cs-btn" data-x="cancel">Cancel</button><button type="button" class="cs-btn cs-primary" data-x="ok"${many ? ' disabled' : ''}>${esc(many ? 'Preparing the sheets…' : o.ok)}</button></div></div>`;
+    const ok = back.querySelector('[data-x="ok"]'), big = back.querySelector('.cs-pv-img img'), wait = back.querySelector('.cs-pv-wait'), before = document.activeElement;
+    const ths = [...back.querySelectorAll('.cs-pv-th')];
+    const show = (i) => { // a sheet large: its picture once ready, its name meanwhile
+      at = i;
+      ths.forEach((t, k) => t.classList.toggle('cs-on', k === i));
+      if (urls[i]) { big.src = urls[i]; big.hidden = false; wait.textContent = ''; } else { big.hidden = true; wait.textContent = 'Preparing ' + o.sheets[i] + '…'; }
+      if (ths[i]) ths[i].scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    };
     const done = (yes) => { if (closed) return; closed = true; window.removeEventListener('keydown', onKeys, true); back.remove(); if (before && before.focus) before.focus(); res(yes); };
-    back.addEventListener('click', (e) => { const b = e.target.closest('[data-x]'); if (b) done(b.dataset.x === 'ok'); });
+    back.addEventListener('click', (e) => {
+      const th = e.target.closest('.cs-pv-th'); if (th) { show(+th.dataset.i); return; }
+      const b = e.target.closest('[data-x]'); if (b && !b.disabled) done(b.dataset.x === 'ok');
+    });
     function onKeys(e) {
       e.stopPropagation();
       const t = e.target;
       if (e.key === 'Escape') { e.preventDefault(); done(false); return; }
-      if (e.key === 'Enter') { e.preventDefault(); const b = t && t.closest && t.closest('[data-x]'); done(b ? b.dataset.x === 'ok' : true); return; }
-      if (e.key === 'Tab') { const f = [...back.querySelectorAll('button')], i = f.indexOf(t); e.preventDefault(); f[(i < 0 ? 0 : i + (e.shiftKey ? f.length - 1 : 1)) % f.length].focus(); return; }
+      if (e.key === 'Enter') { e.preventDefault(); const b = t && t.closest && t.closest('[data-x]'); if (b ? b.dataset.x === 'cancel' : false) done(false); else if (ready) done(true); return; }
+      if (many && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { e.preventDefault(); show(Math.max(0, Math.min(ths.length - 1, at + (e.key === 'ArrowRight' ? 1 : -1)))); return; }
+      if (e.key === 'Tab') { const f = [...back.querySelectorAll('.cs-dlg-btns button:not([disabled])')], i = f.indexOf(t); e.preventDefault(); f[(i < 0 ? 0 : i + (e.shiftKey ? f.length - 1 : 1)) % f.length].focus(); return; }
       e.preventDefault(); // nothing else: no key reaches the drawing behind
     }
     window.addEventListener('keydown', onKeys, true);
     ['pointerdown', 'pointerup', 'wheel', 'paste'].forEach((t) => back.addEventListener(t, (e) => e.stopPropagation()));
     document.body.appendChild(back);
-    ok.focus();
+    if (many) {
+      show(at);
+      back.querySelector('[data-x="cancel"]').focus();
+      if (o.onOpen) o.onOpen({
+        set(i, url) { urls[i] = url; const th = ths[i]; if (th) { const im = th.querySelector('img'); im.src = url; im.hidden = false; th.querySelector('.cs-pv-ph').remove(); th.classList.add('cs-pv-done'); } if (i === at) show(i); },
+        status(text) { if (!ready) ok.textContent = text; },
+        done() { ready = true; ok.disabled = false; ok.textContent = o.ok; if (!closed) ok.focus(); },
+        fail(text) { ok.textContent = text; },
+        closed: () => closed,
+      });
+    } else ok.focus();
   });
 }
 
@@ -74171,16 +74210,17 @@ function createSitePlan(CFG) {
   // A pause that lets the screen catch up, without a timer: a browser slows timers to one a second in a window that
   // is not in front, which made a 20-page export take 20 seconds longer there.
   const breathe = () => new Promise((res) => { const ch = new MessageChannel(); ch.port1.onmessage = () => { ch.port1.close(); res(); }; ch.port2.postMessage(0); });
-  async function exportAll(kind, dir) {
-    const live = kind === 'pdf' && !!window.CompressionStream;
-    const f = IMG_FORMATS.find((x) => x[0] === kind) || IMG_FORMATS[0], base = fileBase(true), pad = String(D.pages).length;
+  // Every page's sheet, one after the other, each in the view that page was left in (order: the page numbers to go
+  // through, the page showing first for the preview). each(n, cv, fr) takes what it needs from the sheet; the canvas
+  // is freed after. stop(): true to stop early (the preview cancelled). Back to the page showing, as it was, after.
+  async function eachSheet(live, each, stop, order) {
     keepView();
-    const cur = D.page, keep = [V.cx, V.cy, V.z], pages = [], files = [], used = new Set();
+    const cur = D.page, keep = [V.cx, V.cy, V.z];
     let failed = null;
     R.batch = true;
     try {
-      for (let n = 1; n <= D.pages; n++) {
-        busy(`Exporting ${kind.toUpperCase()}: ${D.set ? 'image' : 'page'} ${n} of ${D.pages}…`);
+      for (const n of order || Array.from({ length: D.pages }, (_, i) => i + 1)) {
+        if (stop && stop()) break;
         await breathe(); // let the count show
         await loadPage(n, ++D.pageGen, false);
         D.page = n; alignHere();
@@ -74188,30 +74228,50 @@ function createSitePlan(CFG) {
         if (!applyView(v)) { V.z = fitZ(); V.cx = D.w / 2; V.cy = D.h / 2; } // that page as it was left (never shown: whole)
         const fr = sheetFrame(); // once per page: the picture, the annotations and the written scale all use it
         const cv = await composeSheet(live, fr);
-        if (kind === 'pdf') {
-          const jpg = await toBlob(cv, 'image/jpeg', 0.92);
-          pages.push({ jpeg: new Uint8Array(await jpg.arrayBuffer()), w: cv.width, h: cv.height, annots: live ? await sheetAnnots(fr) : [], N: fr.N });
-        } else {
-          const blob = await f[2](cv);
-          let nm = D.set ? baseName(D.set.entries[n - 1].name).replace(/\.[^.]+$/, '') : 'page-' + String(n).padStart(pad, '0');
-          if (used.has(nm.toLowerCase())) nm += '_' + String(n).padStart(pad, '0'); // the same name in two sub-folders
-          used.add(nm.toLowerCase());
-          nm += '.' + f[0];
-          if (dir) { const w = await (await dir.getFileHandle(nm, { create: true })).createWritable(); await w.write(blob); await w.close(); }
-          else files.push({ name: base + '/' + nm, data: blob, size: blob.size, crc: crc32(new Uint8Array(await blob.arrayBuffer())) });
-        }
-        cv.width = cv.height = 0;
+        try { await each(n, cv, fr); } finally { cv.width = cv.height = 0; }
         if (D.kind === 'pdf' && n !== cur) { try { D.pageObj.cleanup(); } catch (e) { /* still drawing: it is freed with the document */ } }
       }
     } catch (e) { failed = e; }
-    // back to the page that was showing, as it was
-    D.page = cur; V.cx = keep[0]; V.cy = keep[1]; V.z = keep[2]; 
+    D.page = cur; V.cx = keep[0]; V.cy = keep[1]; V.z = keep[2];
     R.batch = false;
     await showPage(cur, false, true);
     if (failed) throw failed;
-    if (kind === 'pdf') return { blob: pdfSheet(pages, (PLAN.info.by || '').trim() || 'Site Logistics'), file: base + '.pdf', count: pages.length };
-    if (dir) return { folder: dir.name, count: D.pages };
-    return { blob: new Blob(zipParts(files), { type: 'application/zip' }), file: base + '.zip', count: files.length };
+  }
+  // What an all-pages export keeps of each sheet (take), and the file made from them all, in page order (finish):
+  // PDF, one file with a page per sheet, markups as annotations; an image format, one image per sheet named after its
+  // page, written into a folder where the browser can do that (dir), and otherwise packed into one .zip.
+  function sheetSet(kind) {
+    const live = kind === 'pdf' && !!window.CompressionStream;
+    const f = IMG_FORMATS.find((x) => x[0] === kind) || IMG_FORMATS[0], base = fileBase(true), pad = String(D.pages).length, got = [];
+    return {
+      live,
+      async take(n, cv, fr) {
+        if (kind === 'pdf') {
+          const jpg = await toBlob(cv, 'image/jpeg', 0.92);
+          got[n - 1] = { jpeg: new Uint8Array(await jpg.arrayBuffer()), w: cv.width, h: cv.height, annots: live ? await sheetAnnots(fr) : [], N: fr.N };
+        } else got[n - 1] = { name: D.set ? baseName(D.set.entries[n - 1].name).replace(/\.[^.]+$/, '') : 'page-' + String(n).padStart(pad, '0'), blob: await f[2](cv) };
+      },
+      async finish(dir) {
+        const all = got.filter(Boolean);
+        if (kind === 'pdf') return { blob: pdfSheet(all, (PLAN.info.by || '').trim() || 'Site Logistics'), file: base + '.pdf', count: all.length };
+        const used = new Set(), files = [];
+        for (let i = 0; i < got.length; i++) {
+          const x = got[i]; if (!x) continue;
+          let nm = x.name;
+          if (used.has(nm.toLowerCase())) nm += '_' + String(i + 1).padStart(pad, '0'); // the same name in two sub-folders
+          used.add(nm.toLowerCase()); nm += '.' + f[0];
+          if (dir) { const w = await (await dir.getFileHandle(nm, { create: true })).createWritable(); await w.write(x.blob); await w.close(); }
+          else files.push({ name: base + '/' + nm, data: x.blob, size: x.blob.size, crc: crc32(new Uint8Array(await x.blob.arrayBuffer())) });
+        }
+        if (dir) return { folder: dir.name, count: all.length };
+        return { blob: new Blob(zipParts(files), { type: 'application/zip' }), file: base + '.zip', count: files.length };
+      },
+    };
+  }
+  async function exportAll(kind, dir) { // every page, without a preview (the test hook)
+    const set = sheetSet(kind);
+    await eachSheet(set.live, (n, cv, fr) => { busy(`Exporting ${kind.toUpperCase()}: ${D.set ? 'image' : 'page'} ${n} of ${D.pages}…`); return set.take(n, cv, fr); });
+    return set.finish(dir);
   }
   // Where the images of an all-pages export go: a new folder inside one the user picks, where the browser offers that
   // (desktop Chrome and Edge). null: no such thing here, or it was refused, so the images are packed into a .zip.
@@ -74226,7 +74286,17 @@ function createSitePlan(CFG) {
   // The preview before any export (csPreview): this page's sheet, drawn as it will be saved, with the shown layers, the
   // hidden ones, the scale and the file. The drawing is held (exporting) while it is open, so the sheet saved is the one
   // seen. True: save.
+  // A sheet's picture for the preview of every page: 1600 px across, enough to read it large in the preview
+  async function previewUrl(cv) {
+    const k = Math.min(1, 1600 / cv.width), c = document.createElement('canvas');
+    c.width = Math.round(cv.width * k); c.height = Math.round(cv.height * k);
+    c.getContext('2d').drawImage(cv, 0, 0, c.width, c.height);
+    const u = URL.createObjectURL(await toBlob(c, 'image/jpeg', 0.85));
+    c.width = c.height = 0;
+    return u;
+  }
   async function previewExport(kind, many) {
+    if (many) return previewAll(kind);
     let cv = null, url = null;
     setExporting(true); busy('Preparing the preview…');
     try {
@@ -74245,7 +74315,6 @@ function createSitePlan(CFG) {
         url, title: many ? `Save ${D.pages} sheets as ${what}?` : `Save this sheet as ${what}?`,
         sub: `${fr.N ? 'To the scale bar' : 'Not to scale'}, 11 x 17 in`,
         lines: [
-          many ? `One sheet for each ${D.set ? 'image' : 'page'}, each as it was left; shown here: ${D.set ? pageName(D.page) : 'page ' + D.page} of ${D.pages}.` : '',
           `On the sheet: ${shown.length ? shown.map(lyr).join(', ') : 'no markup (the drawing and title block only)'}.`,
           hidden.length ? `Hidden, so not on the sheet: ${hidden.map((l) => l.label).join(', ')}.` : '',
           ovlShown().length ? `Pages laid over (${ovlShown().map((o) => (D.set ? pageName(o.pg) : o.pg)).join(', ')}) show on screen only: ${many ? 'each sheet is its own page' : 'the sheet is this page'} alone.` : '',
@@ -74259,18 +74328,61 @@ function createSitePlan(CFG) {
       setExporting(false); busy(null);
     }
   }
+  // The preview of every page: each sheet is built once, exactly as it will be saved (the page showing first), shown
+  // as it is ready, and kept: Save then only writes the file (sheetSet). Cancel stops the building. Resolves to the
+  // kept sheets on Save, or null.
+  async function previewAll(kind) {
+    const set = sheetSet(kind), urls = [], cur = D.page, total = D.pages;
+    const what = kind === 'pdf' ? 'PDF' : (IMG_FORMATS.find((x) => x[0] === kind) || IMG_FORMATS[0])[1];
+    const lyr = (l) => l.label + (layerOp(l.id) < 1 ? ` (${Math.round(layerOp(l.id) * 100)}%)` : '');
+    const has = (id) => PLAN.items.some((i) => layerOf(i) === id);
+    const shown = LAYERS.filter((l) => layerOn(l.id) && has(l.id)), hidden = LAYERS.filter((l) => !layerOn(l.id) && has(l.id));
+    let api = null, failed = null, made = 0;
+    setExporting(true);
+    try {
+      const answer = csPreview({
+        title: `Save ${total} sheets as ${what}?`, sub: '11 x 17 in, one sheet for each ' + (D.set ? 'image' : 'page'),
+        sheets: Array.from({ length: total }, (_, i) => (D.set ? pageName(i + 1) : `Page ${i + 1}`)), start: cur - 1,
+        lines: [
+          `Each ${D.set ? 'image' : 'page'} as it was left (one never shown: whole). Click a sheet to see it large, or use the arrow keys.`,
+          `On the sheets: ${shown.length ? shown.map(lyr).join(', ') : 'no markup (the drawings and title blocks only)'}.`,
+          hidden.length ? `Hidden, so not on the sheets: ${hidden.map((l) => l.label).join(', ')}.` : '',
+          ovlShown().length ? `Pages laid over (${ovlShown().map((o) => (D.set ? pageName(o.pg) : o.pg)).join(', ')}) show on screen only: each sheet is its own page alone.` : '',
+          `File: ${kind === 'pdf' ? fileBase(true) + '.pdf' : fileBase(true) + ' (a folder or .zip of images)'}`,
+        ].filter(Boolean),
+        ok: `Save ${total} sheets`,
+        onOpen: (a) => { api = a; },
+      });
+      const order = [cur].concat(Array.from({ length: total }, (_, i) => i + 1).filter((n) => n !== cur));
+      try {
+        await eachSheet(set.live, async (n, cv, fr) => {
+          await set.take(n, cv, fr);
+          const u = await previewUrl(cv); urls.push(u); made += 1;
+          api.set(n - 1, u); api.status(`Preparing sheet ${made} of ${total}…`);
+        }, () => api.closed(), order);
+        if (!api.closed()) api.done();
+      } catch (e) { failed = e; if (!api.closed()) api.fail('Could not prepare the sheets'); }
+      const yes = await answer;
+      if (failed) throw failed;
+      return yes ? set : null;
+    } finally {
+      urls.forEach((u) => URL.revokeObjectURL(u));
+      setExporting(false); busy(null);
+    }
+  }
   async function exportSheet(kind, all) {
     if (!D.ready) { toast('Open a drawing first.', 'err'); return; }
     if (R.exporting) return;
-    let go = false;
-    try { go = await previewExport(kind, all && D.pages > 1); }
-    catch (err) { toast('Export failed: ' + ((err && err.message) || err), 'err'); return; }
-    if (!go) { toast('Nothing saved.'); return; }
-    if (all && D.pages > 1) {
+    if (all && D.pages > 1) { // every page: the sheets are built for the preview, and Save writes them
+      let set = null;
+      try { set = await previewAll(kind); }
+      catch (err) { toast('Export failed: ' + ((err && err.message) || err), 'err'); return; }
+      if (!set) { toast('Nothing saved.'); return; }
       setExporting(true);
       try {
         const dir = kind === 'pdf' ? null : await pickFolder(fileBase(true));
-        const r = await exportAll(kind, dir);
+        busy('Saving…');
+        const r = await set.finish(dir);
         if (r.folder) toast(`Saved ${r.count} sheets in the folder ${r.folder}.`);
         else if (COARSE) offerFile(r.blob, r.file);
         else { download(r.blob, r.file); toast(`Saved ${r.file} (${r.count} sheets).`); }
@@ -74278,6 +74390,10 @@ function createSitePlan(CFG) {
       finally { setExporting(false); busy(null); }
       return;
     }
+    let go = false;
+    try { go = await previewExport(kind, false); }
+    catch (err) { toast('Export failed: ' + ((err && err.message) || err), 'err'); return; }
+    if (!go) { toast('Nothing saved.'); return; }
     setExporting(true); busy('Exporting ' + kind.toUpperCase() + '…');
     try {
       const live = kind === 'pdf' && !!window.CompressionStream; // without it the markup is flattened into the picture

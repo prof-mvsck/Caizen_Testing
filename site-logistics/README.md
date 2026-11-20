@@ -131,7 +131,11 @@ Ctrl is Cmd on a Mac.
    no bar).
 6. **Export image / Export PDF / Print**: first a **preview** of the sheet exactly as it will be saved, with the
    layers on it, the hidden ones left off, the scale and the file name; nothing is written until **Save** (Esc or
-   Cancel saves nothing; 2026-11-19). 11 x 17 in at 200 dpi, with the drawing as framed, a north arrow, a
+   Cancel saves nothing; 2026-11-19).
+   **With All pages, the preview shows every sheet** (2026-11-20): it opens at once with a strip of all the pages, the
+   page showing first, and fills each in as its sheet is built, exactly as it will be saved; click a sheet (or use the
+   arrow keys) to see it large. Save comes on when all are ready and then only writes the file, since each sheet is
+   built once; Cancel stops the building and leaves the drawing as it was. 11 x 17 in at 200 dpi, with the drawing as framed, a north arrow, a
    scale bar, a legend of only the symbols used (a heading per shown layer), and the title block. **Print at actual size (100%)**, not "fit to page", so
    the PDF's measuring scale holds (the scale bar holds either way). The border sits 1/4 in in from the paper edge so a 100% print does not clip it.
 
