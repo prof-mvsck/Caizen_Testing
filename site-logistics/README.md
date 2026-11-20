@@ -36,7 +36,7 @@ All layers show on the drawing together; the last in the list draws on top.
   typed. Select it and press **Trailer size** (E), or double-click it, to type its length and width in metres
   (`12.2`, `12.2 m`, `12200 mm`) or feet and inches (`40'`, `40 ft`, `40'-6"`) and its angle (degrees anticlockwise).
   Its size is written above it while selected, and it keeps its real size if the drawing scale is changed.
-- One title block, sheet scale, symbol size and drawing title for the whole sheet; the title is typed
+- One title block, symbol size and drawing title for the whole sheet; the title is typed
   (SITE LOGISTICS PLAN to start).
 - `src/plans.js` lists the layers and, per layer, the legend headings and symbol ids (picked from the symbol
   libraries). The Site Safety legend is the 16 entries of the Site Safety Plan legend; its Crane has a reach circle,
@@ -95,10 +95,13 @@ Ctrl is Cmd on a Mac.
    of several pages, *Export*: **All pages** or **This page**, what Export image and Export PDF save. F and Z work
    even while the Drawing panel is behind another tab on a narrow screen.
    The **Drawing panel** (left) shows titles and controls only: hover a title or a control for what it does
-   (2026-11-19: the explanation paragraphs moved into tooltips). A short warning shows under Sheet scale only while the
-   drawing has no scale.
-2. **Drawing scale** (left panel): *Calibrate...* on two points a known distance apart, or *Enter 1:N...* for a PDF
-   drawn to scale at full size. The sheet scale, scale bar and crane reach in metres need it.
+   (2026-11-19: the explanation paragraphs moved into tooltips).
+2. **Drawing scale** (left panel): the scale the drawing was drawn at on its own full-size sheet. *Calibrate...* on
+   two points a known distance apart, or *Enter 1:N...* for a PDF at its full original size: `1:200`, `200`,
+   `1/8" = 1'-0"`, `1/8"` or `1" = 20'` (2026-11-20: imperial notation). **It only measures**: dimensions, crane reach,
+   site trailers and the scale bar. It does not change what prints or how far the view zooms (2026-11-20). Set it once,
+   to the drawing's own scale: a 1/8" drawing stays 1/8" even when its whole page is shown small on the 11 x 17.
+   Changing it on a page that already has markup asks first, since every dimension there would read differently.
 3. **Snap** (on to start; S or the Snap button turns it off): symbols, line points, area corners, text labels,
    dimension ends and Calibrate's points jump to the drawing's line ends, crossings and middles and to the points of
    the markup on shown layers (a locked layer's too); so do corners dragged to reshape and items moved. Shift keeps
@@ -111,26 +114,26 @@ Ctrl is Cmd on a Mac.
    address, and a short yellow list beside the cursor (its checkbox turns that off). Otherwise both are hidden
    (2026-11-19).
    **Symbol size** (left panel, one setting per plan): *Small* or *Large*. Symbols print at a fixed size on the
-   11 x 17 sheet at every drawing scale and sheet scale: a standard symbol is 1/4 in tall at Small and 1/2 in at
+   11 x 17 sheet at every drawing scale and framing: a standard symbol is 1/4 in tall at Small and 1/2 in at
    Large; smaller ones (cones, drums) keep their proportion, down to a floor so they still read. On screen they show
    at the size they will have against the drawing on the sheet. Lines, areas and crane reach are not affected.
 4. Fill in the **title block** along the bottom (project, site address, drawing title, sheet, rev, drawn by,
    checked by, date). It prints exactly as laid out on screen.
-5. **Sheet scale** (left panel): *Auto* uses the largest standard scale (1:100, 1:125, 1:150, 1:200, 1:250, ...) at
-   which everything in view still fits. A fixed scale (metric, 1" = 20' style, or 1/4" = 1'-0" and 1/8" = 1'-0") prints the area inside the dashed frame on screen.
-   **Once the drawing has a scale, the whole sheet is as far out as the view goes** (2026-11-19): there the dashed
-   outline fills the window as the sheet's print area. Scroll (or pinch) to zoom in for a closer look, and back out
-   to the whole sheet, no further. Zooming in is a magnifier: the print area and its scale stay as they were (pan
-   around while zoomed in and zoom back out: the same sheet), and Auto's scale is held, not picked again from the zoom.
-   Drag at the whole sheet to move what prints. The scale changes with *Sheet scale*, or on *Auto* with **Fit** (the
-   largest standard scale that shows the whole page) and **Selected** (the one for a dragged rectangle), each shown
-   as the whole sheet. Calibrate can zoom freely while its two points are picked and puts the view back after.
-   Without a drawing scale, zoom is free.
+5. **The sheet is what you frame** (2026-11-20: no sheet scale to pick, no standard numbers). What is inside the dashed
+   outline prints, at any zoom: scroll (or pinch) in and out, drag to pan, **Fit** (F) for the whole page, **Selected**
+   (Z) to make a dragged rectangle fill the outline. One rule keeps people from zooming out too far: **the sheet never
+   shows blank space on more than two sides**. Zooming out stops at the whole page just inside the outline (where Fit
+   puts it), with any blank space on two opposite sides, evenly; panning keeps to the same rule (the outline stays on
+   the page, or the page stays centred where it is narrower than the outline). It works for a PDF page or image of any
+   shape (portrait, landscape, a long panorama, a square, a tiny image), turned or not, with or without a drawing scale.
+   Calibrate puts the view back after picking its two points. The sheet prints at whatever scale that framing gives, so
+   the title block reads **As shown: see scale bar** and the four-part scale bar is exact (with no drawing scale: NTS,
+   no bar).
 6. **Export image / Export PDF / Print**: first a **preview** of the sheet exactly as it will be saved, with the
    layers on it, the hidden ones left off, the scale and the file name; nothing is written until **Save** (Esc or
-   Cancel saves nothing; 2026-11-19). 11 x 17 in at 200 dpi, with the drawing at the sheet scale, a north arrow, a
-   scale bar, a legend of only the symbols used (a heading per shown layer), and the title block. **Print at actual size (100%)**, not "fit to page", or the
-   scale will be wrong. The border sits 1/4 in in from the paper edge so a 100% print does not clip it.
+   Cancel saves nothing; 2026-11-19). 11 x 17 in at 200 dpi, with the drawing as framed, a north arrow, a
+   scale bar, a legend of only the symbols used (a heading per shown layer), and the title block. **Print at actual size (100%)**, not "fit to page", so
+   the PDF's measuring scale holds (the scale bar holds either way). The border sits 1/4 in in from the paper edge so a 100% print does not clip it.
 
 Markup saves automatically in the browser, per drawing (by file name and size), and the last drawing reopens next
 time. Browser storage is per browser and per address (a file opened from disk and the localhost copy don't share
@@ -148,8 +151,8 @@ it) and is lost if the browser's data is cleared, so use **Save plan file** to k
   (a Polygon for a swing pie). Each carries a picture of itself as its appearance; when a line, area or circle is
   edited in Revu, Revu redraws it from its colour, width, dash and fill, so hatches, ticks and letter marks go plain.
   `test/bluebeam-check.pdf` is a sample.
-  When the drawing has a scale, the PDF also carries the sheet scale as a measurement viewport, which Revu shows as
-  its page scale, so its measuring tools read metres without calibrating.
+  When the drawing has a scale, the PDF also carries the scale the sheet prints at as a measurement viewport, which
+  Revu shows as its page scale, so its measuring tools read metres without calibrating.
 - **PDF layers and line styles:** markups sit on one PDF layer per plan layer (Site Mobilization, Site Safety, ...,
   Notes; 2026-11-19), at the layer's opacity, so Revu and Acrobat can switch each discipline on and off; fence ticks and the
   covered walkway's rails use Bluebeam's own `/LineStyle`, so they survive an edit in Revu. On screen and in the
@@ -187,9 +190,10 @@ byte-identical to the worker in the original `logistics-sheet (1).html`.
 
 ## Changes from the reference (`logistics-sheet (1).html`, 2026-11)
 - The export now carries a full title block; the reference dropped project info from the exported sheet.
-- The export prints at a true, standard scale, stated in the title block and on a four-part scale bar; a fixed scale
-  can be picked, with an on-screen frame showing what it prints. (The COSMOS extension's label was off by the screen
-  size; the reference's scale was true but not a round number.)
+- The export carries a true four-part scale bar, from the drawing scale, with an on-screen frame showing what prints.
+  (The COSMOS extension's label was off by the screen size.) From 2026-11-19 to 11-20 it printed at standard scales
+  picked in a Sheet scale list; since 2026-11-20 the sheet is what is framed and the title block says "As shown: see
+  scale bar".
 - 1/4 in sheet margin so printing at 100% keeps the border.
 - Save / load plan files (.json), checked on load: unknown symbols and bad numbers are dropped and ids regenerated.
 - Real source plus a build script; the reference was a built file with no source.
